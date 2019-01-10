@@ -1,6 +1,5 @@
-name: app
+name: hound-dog
 version: 1.0.0
-
 dependencies:
   action-controller:
     github: spider-gazelle/action-controller
@@ -12,6 +11,8 @@ dependencies:
   # Generic template interface for Crystal
   kilt:
     github: jeromegn/kilt
+  awesome-logger:
+    github: tbrand/awesome-logger
 
 development_dependencies:
   ameba:

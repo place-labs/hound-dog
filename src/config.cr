@@ -36,5 +36,5 @@ ActionController::Session.configure do
   settings.secret = ENV["COOKIE_SESSION_SECRET"]? || "4f74c0b358d5bab4000dd3c75465dc2c"
 end
 
-APP_NAME = "Spider-Gazelle"
+APP_NAME = "Hound-Dog"
 VERSION  = "1.0.0"
