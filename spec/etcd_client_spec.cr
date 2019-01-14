@@ -52,5 +52,18 @@ describe EtcdClient do
             response = client.lease_revoke lease[:id]
             response.should be_true
         end
+
+        it "extends a lease" do
+            lease = client.lease_grant etcd_ttl
+            new_ttl = client.lease_keep_alive lease[:id]
+            new_ttl.should be > 0
+        end
+    end
+
+    describe "Key/Value" do
+        it "sets a value" do
+            response = client.put("hello", "world")
+            response.should be_true
+        end
     end
 end

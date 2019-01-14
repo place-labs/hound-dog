@@ -103,7 +103,10 @@ class EtcdClient
     # Method to request persistence of lease.
     # Must be invoked periodically to avoid key loss
     def lease_keep_alive(id : Int64)
-        api_execute("POST", "/lease/keepalive", { :ID => id })
+        response = api_execute("POST", "/lease/keepalive", { :ID => id })
+        body = JSON.parse(response.body)
+        new_ttl = body["result"]["TTL"].to_s.to_i64
+        new_ttl
     end
 
     # Method to query the TTL of a lease
@@ -116,7 +119,6 @@ class EtcdClient
             id: body["grantedTTL"].to_s.to_i64,
             ttl: body["TTL"].to_s.to_i64
         }
-
     end
  
     # Method to revoke a lease
@@ -134,26 +136,32 @@ class EtcdClient
         leases
     end
 
-    # key             key is the key, in bytes, to put into the key-value store.                                                       bytes
-    # value           value is the value, in bytes, to associate with the key in the key-value store.                                  bytes
+    # key             key is the string that will be base64 encoded and associated with value in the kv store                          String
+    # value           value is the string that will be base64 encoded and associated with key in the kv store                          String
     # opts
-    #   lease           lease is the lease ID to associate with the key in the key-value store. A lease value of 0 indicates no lease.   Int64
+    #   lease         lease is the lease ID to associate with the key in the key-value store. A lease value of 0 indicates no lease.   Int64
     #   prev_kv       If prev_kv is set, etcd gets the previous key-value pair before changing it.
-    #                   The previous key-value pair will be returned in the put response.                                                Bool
-    #   ignore_value   If ignore_value is set, etcd updates the key using its current value. Returns an error if the key does not exist  Bool
-    #   ignore_lease   If ignore_lease is set, etcd updates the key using its current lease. Returns an error if the key does not exist  Bool
+    #                 The previous key-value pair will be returned in the put response.                                                 Bool
+    #   ignore_value  If ignore_value is set, etcd updates the key using its current value. Returns an error if the key does not exist  Bool
+    #   ignore_lease  If ignore_lease is set, etcd updates the key using its current lease. Returns an error if the key does not exist  Bool
     def put(key, value, **opts)
         opts = {
-            key: key,
-            value: value,
-            lease: 0,
+            key: Base64.strict_encode(key),
+            value: Base64.strict_encode(value),
+            lease: 0_i64
         }.merge(opts)
 
         parameters = {} of Symbol => String | Int64 | Bool
-        {:key, :value, :lease, :prev_kv, :ignore_value, :ignore_lease}.each do |key|
-            parameters[key] = opts[key] if opts.has_key?(key)
+        {:key, :value, :lease, :prev_kv, :ignore_value, :ignore_lease}.each do |param|
+            parameters[param] = opts[param] if opts.has_key?(param)
         end
-        api_execute("POST", "/kv/put", parameters) 
+        response = api_execute("POST", "/kv/put", parameters)
+
+        if opts["prev_kv"]?
+            JSON.parse(response.body)["prev_kv"]
+        else
+            response.success?
+        end
     end
 
     # Method to query a range of keys
