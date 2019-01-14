@@ -1,4 +1,4 @@
-require "../models/etcd"
+require "../models/etcd_client"
 
 class EtcdController < Application
     base "/etcd"
@@ -14,4 +14,5 @@ class EtcdController < Application
             version: ETCD_CLIENT.version
         }
     end
+
 end
