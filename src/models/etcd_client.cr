@@ -6,7 +6,7 @@ require "uri"
 
 require "awesome-logger"
 
-# All etcd response values are stringly typed
+# Converter for stringly typed values, such as etcd response values
 module CoerceStringlyTypedJSON(T)
     def self.from_json(value : JSON::PullParser): T
         T.new(value.read_string)
@@ -34,12 +34,15 @@ class EtcdStatus < ActiveModel::Model
     attribute raftTerm : UInt64, converter: CoerceStringlyTypedJSON(UInt64)
 end
 
+# class EtcdLeases < ActiveModel::Model
+#     attribute header : EtcdResponseHeader
+#     attribute leases : Array(NamedTuple( ID: Int64 )), converter: Array(NamedTuple( ID: Int64 ))
+# end
 
 ##
 # Class to communicate with an etcd instance over HTTP
 class EtcdClient
     VERSION_PREFIX = "/v3beta"
-
 
     enum WatchFilter
         NOPUT
@@ -51,8 +54,8 @@ class EtcdClient
     # Creates a new Etcd HTTP client
     # host IP address of the etcd server (default 127.0.0.1)
     # port Port number of the etcd server (default 4001)
-    # read_timeout set HTTP read timeouts (default 60)
-    def initialize(host = "127.0.0.1", port = 4001, ttl = 60)
+    # TTL of leases (default 60)
+    def initialize(host = "127.0.0.1", port = 4001, ttl : Int64 = 60)
         @host = host
         @port = port
         @ttl = ttl
@@ -81,38 +84,54 @@ class EtcdClient
 
     # Delete key or range of keys
     def delete(key, range_end="")
-        api_execute("POST", "kv/deleterange", { :key => key , :range_end => range_end })
+        api_execute("POST", "/kv/deleterange", { :key => key , :range_end => range_end })
     end
 
     # Method to request a lease
     # ttl   ttl of granted lease
     # id    id of 0 prompts etcd to assign any id to lease
-    def lease_grant(ttl : Int64, id = 0)
-        api_execute("POST", "lease/grant", { :TTL => ttl, :ID => 0 })
+    def lease_grant(ttl : Int64 = @ttl, id = 0)
+        response = api_execute("POST", "/lease/grant", { :TTL => ttl, :ID => 0 })
+        body = JSON.parse(response.body)
+        lease = {
+            id: body["ID"].to_s.to_i64,
+            ttl: body["TTL"].to_s.to_i64
+        }
+        lease
     end
 
     # Method to request persistence of lease.
     # Must be invoked periodically to avoid key loss
     def lease_keep_alive(id : Int64)
-        api_execute("POST", "lease/keepalive", { :ID => id })
+        api_execute("POST", "/lease/keepalive", { :ID => id })
     end
 
     # Method to query the TTL of a lease
     # id            id of lease
     # query_keys    query all the lease's keys for ttl
     def lease_TTL(id : Int64, query_keys = false)
-        api_execute("POST", "kv/lease/timetolive", { :ID => id, :keys => query_keys })
-    end
+        response = api_execute("POST", "/kv/lease/timetolive", { :ID => id, :keys => query_keys })
+        body = JSON.parse(response.body)
+        ttl_info = {
+            id: body["grantedTTL"].to_s.to_i64,
+            ttl: body["TTL"].to_s.to_i64
+        }
 
+    end
+ 
     # Method to revoke a lease
     # id    id of lease
     def lease_revoke(id : Int64)
-        api_execute("POST", "kv/lease/revoke", { :ID => id })
+        response = api_execute("POST", "/kv/lease/revoke", { :ID => id })
+        response.success?
     end
 
     # Method to query all existing leases
     def leases
-        api_execute("POST", "kv/leases/leases")
+        response_body = api_execute("POST", "/kv/lease/leases").body
+        body = JSON.parse(response_body)
+        leases = body["leases"].as_a.map { |l| l["ID"].as_s.to_i64 }
+        leases
     end
 
     # key             key is the key, in bytes, to put into the key-value store.                                                       bytes
@@ -134,12 +153,12 @@ class EtcdClient
         {:key, :value, :lease, :prev_kv, :ignore_value, :ignore_lease}.each do |key|
             parameters[key] = opts[key] if opts.has_key?(key)
         end
-        api_execute("POST", "kv/put", parameters) 
+        api_execute("POST", "/kv/put", parameters) 
     end
 
     # Method to query a range of keys
     def range(key, range_end="")
-        api_execute("POST", "kv/range", { :key => key, :range_end => range_end }) 
+        api_execute("POST", "/kv/range", { :key => key, :range_end => range_end }) 
     end
 
     # key              key is the key to register for watching.                                                                                bytes
@@ -189,6 +208,8 @@ class EtcdClient
             value.transform_values { |v| to_stringly v}
         when NamedTuple
             to_stringly value.to_h
+        when Bool
+            value
         else
             value.to_s
         end
@@ -219,7 +240,6 @@ class EtcdClient
 
         HTTP::Client.new(@host, @port) do |http|
             Logger.debug("Invoking: '#{method}' against '#{path}'")
-            http.connect_timeout = @ttl
             res = http.exec(method, path, body: body)
             Logger.debug("Response: #{res.status_code} #{res.body}")
             process_http_response(res)
