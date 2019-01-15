@@ -6,13 +6,15 @@ dependencies:
     version: "~> 1.1"
   active-model:
     github: spider-gazelle/active-model
+  awesome-logger:
+    github: tbrand/awesome-logger
+  tasker:
+    github: spider-gazelle/tasker
 
   # https://github.com/jeromegn/kilt
   # Generic template interface for Crystal
   kilt:
     github: jeromegn/kilt
-  awesome-logger:
-    github: tbrand/awesome-logger
 
 development_dependencies:
   ameba:
