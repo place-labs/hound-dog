@@ -24,13 +24,13 @@ class EtcdStatus < ActiveModel::Model
   # version is the cluster protocol version used by the responding member.
   attribute version : String
   # dbSize is the size of the backend database, in bytes, of the responding member.
-  attribute dbSize : Int64, converter: StringTypedJSONConverter(Int64)
+  attribute dbSize : Int64, converter: StringTypedJSONConverter(Int64) # ameba:disable Style/VariableNames
   # leader is the member ID which the responding member believes is the current leader.
   attribute leader : UInt64, converter: StringTypedJSONConverter(UInt64)
   # raftIndex is the current raft index of the responding member.
-  attribute raftIndex : UInt64, converter: StringTypedJSONConverter(UInt64)
+  attribute raftIndex : UInt64, converter: StringTypedJSONConverter(UInt64) # ameba:disable Style/VariableNames
   # raftTerm is the current raft term of the responding member.
-  attribute raftTerm : UInt64, converter: StringTypedJSONConverter(UInt64)
+  attribute raftTerm : UInt64, converter: StringTypedJSONConverter(UInt64) # ameba:disable Style/VariableNames
 end
 
 ##

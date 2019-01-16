@@ -16,10 +16,10 @@ describe EtcdClient do
       it "discovers available services" do
         lease = client.lease_grant etcd_ttl
 
-        key0, value0 = "service/api/foo", "bar"
-        key1, value1 = "service/api/bar", "bath"
-        key2, value2 = "service/engine/foo", "bar"
-        key3, value3 = "service/engine/bar", "bath"
+        key0, value0 = "service/api/foo", "foo:42"
+        key1, value1 = "service/api/bar", "bar:42"
+        key2, value2 = "service/engine/foo", "foot:42"
+        key3, value3 = "service/engine/bar", "bath:42"
         client.put(key0, value0, lease: lease[:id])
         client.put(key1, value1, lease: lease[:id])
         client.put(key2, value2, lease: lease[:id])
@@ -35,19 +35,22 @@ describe EtcdClient do
 
       it "lists services beneath given namespace" do
         lease = client.lease_grant etcd_ttl
-        key0, value0 = "service/api/foo", "bar"
-        key1, value1 = "service/api/bar", "bath"
-        key2, value2 = "service/engine/foo", "bar"
+        key0, value0 = "service/api/foo", "foot:42"
+        key1, value1 = "service/api/bar", "bath:42"
+        key2, value2 = "service/engine/foo", "foo:42"
         client.put(key0, value0, lease: lease[:id])
         client.put(key1, value1, lease: lease[:id])
         client.put(key2, value2, lease: lease[:id])
 
         response = curl("GET", "/etcd/services/api")
         body = JSON.parse(response.body)
-        services = body["services"].as_a.map { |v| v.as_s }
+        services = body.as_a.map { |v| {ip: v["ip"].as_s, port: v["port"].as_s.to_i} }
 
-        expected = ["api/bar", "api/foo"]
-        services.sort.should eq expected
+        expected = [
+          {ip: "bath", port: 42},
+          {ip: "foot", port: 42},
+        ]
+        services.sort_by { |s| s[:ip] }.should eq expected
       end
 
       pending "registers a service" do
