@@ -1,5 +1,6 @@
 require "./spec_helper"
 require "json"
+require "tasker"
 
 describe EtcdClient do
   etcd_host = ENV["ACA_ETCD_HOST"]? || "127.0.0.1"
@@ -10,6 +11,32 @@ describe EtcdClient do
   # ==============
   #  Unit Testing
   # ==============
+  with_server do
+    describe EtcdController do
+      it "discovers available services" do
+        lease = client.lease_grant etcd_ttl
+
+        key0, value0 = "service/api/foo", "bar"
+        key1, value1 = "service/api/bar", "bath"
+        key2, value2 = "service/engine/foo", "bar"
+        key3, value3 = "service/engine/bar", "bath"
+        client.put(key0, value0, lease: lease[:id])
+        client.put(key1, value1, lease: lease[:id])
+        client.put(key2, value2, lease: lease[:id])
+        client.put(key3, value3, lease: lease[:id])
+
+        response = curl("GET", "/etcd/services")
+        body = JSON.parse(response.body)
+        services = body["services"].as_a.map { |v| v.as_s }
+
+        expected = ["api", "engine"]
+        services.sort.should eq expected
+      end
+    end
+
+    pending "registers a service" do
+    end
+  end
 
   describe "Cluster Status" do
     it "queries version" do
@@ -67,7 +94,6 @@ describe EtcdClient do
     end
 
     it "queries a range of keys" do
-
       key, value = "foo", "bar"
       client.put(key, value)
       range = client.range(key)

@@ -163,7 +163,7 @@ class EtcdClient
 
   # Method to calculate range_end for given prefix
   def prefix_range_end(prefix)
-    prefix.sub(-1, prefix[-1] + 1)
+    prefix.size > 0 ? prefix.sub(-1, prefix[-1] + 1) : ""
   end
 
   # Method to query a range of keys

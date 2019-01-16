@@ -1,3 +1,56 @@
+# Hound Dog
+
+Service sidecar for self-registration and service discovery that utilises Etcd for distributed key-value storage.
+
+# API
+
+## /etcd
+
+### ../register
+
+Websocket endpoint to register service node in etcd until termination of socket connection.
+Events for the service under which the node is namespaced are pushed to the client.  
+Optionally, the monitor field allows subscription to all events under requested service namespaces.
+
+|Param    | Description                                         | Type          |
+|--------:|:----------------------------------------------------|:--------------|
+| service | Service name to register                            | String        |
+| ip      | Ip of registered service                            | String        |
+| port    | Service port of registered service                  | Int16         |
+| monitor | Comma seperated service names to monitor (Optional) | Array(String) |
+
+
+
+### ../monitor
+
+Websocket endpoint to register for all events for desired service namespaces.
+
+|Param    | Description                              | Type          |
+|--------:|:-----------------------------------------|:--------------|
+| monitor | comma seperated service names to monitor | Array(String) |
+
+
+### ../leader
+
+Returns the who the current etcd node instance believes is the cluster leader.
+
+
+**Response**
+```json
+{
+  "leader": "instanceid"
+}
+```
+
+
+## Etcd Namespacing
+
+All services are registered beneath the "service/" namespace e.g. "service/engine/server/192.168.10.3"
+
+
+-----------------------------------------------------------------------------------------------------------  
+
+
 # Spider-Gazelle Application Template
 
 [![Build Status](https://travis-ci.org/spider-gazelle/spider-gazelle.svg?branch=master)](https://travis-ci.org/spider-gazelle/spider-gazelle)

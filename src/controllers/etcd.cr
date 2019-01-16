@@ -4,21 +4,28 @@ require "tasker"
 class EtcdController < Application
   base "/etcd"
 
-  private ETCD_HOST              = ENV["ACA_ETCD_HOST"]? || "127.0.0.1"
-  private ETCD_PORT              = (ENV["ACA_ETCD_PORT"]? || 2379).to_i
-  private ETCD_TTL               = (ENV["ACA_ETCD_TTL"]? || 60).to_i64
-  private ETCD_CLUSTER_NAMESPACE = ENV["ACA_CLUSTER_NAMESPACE"]? || "engine/servers"
+  private HOST              = ENV["ACA_ETCD_HOST"]? || "127.0.0.1"
+  private PORT              = (ENV["ACA_ETCD_PORT"]? || 2379).to_i
+  private TTL               = (ENV["ACA_ETCD_TTL"]? || 60).to_i64
+  private CLUSTER_NAMESPACE = ENV["ACA_ETCD_CLUSTER_NAMESPACE"]? || "service/engine/servers"
+  private LEASE_HEARTBEAT   = (ENV["ACA_ETCD_LEASE_HEARTBEAT"]? || 2).to_i
 
-  ETCD_CLIENT = EtcdClient.new(ETCD_HOST, ETCD_PORT, ETCD_TTL)
-  SOCKETS     = [] of HTTP::WebSocket
+  CLIENT  = EtcdClient.new(HOST, PORT, TTL)
+  SOCKETS = [] of HTTP::WebSocket
 
   get "/version", :version do
     render json: {
-      version: ETCD_CLIENT.version,
+      version: CLIENT.version,
     }
   end
 
-  def renew(lease, ttl)
+  get "/services", :services do
+    range = CLIENT.range_prefix "service"
+    services = range.map { |r| r[:key].split('/')[1] }
+    p services
+    render json: {
+      services: services.uniq,
+    }
   end
 
   # Register with local instance of etcd
@@ -29,19 +36,21 @@ class EtcdController < Application
     service_param, ip, port = params["service"]?, params["ip"]?, params["port"]?
     render :bad_request, text: %("service", "ip" and "port" param required) unless service_param && ip && port
 
-    lease = ETCD_CLIENT.lease_grant ETCD_TTL
+    lease = CLIENT.lease_grant TTL
 
     services = service_param.split(',')
-    key = {ETCD_CLUSTER_NAMESPACE, services[0], ip}.join("/")
+    key = {CLUSTER_NAMESPACE, services[0], ip}.join("/")
     value = {ip, port}.join(":")
 
-    key_set = ETCD_CLIENT.put(key, value)
+    key_set = CLIENT.put(key, value)
     render :internal_server_error, text: "failed to register service" unless key_set
 
-    watch = ETCD_CLIENT.watch_prefix(ETCD_CLUSTER_NAMESPACE)
+    keepalive_loop = schedule.every(LEASE_HEARTBEAT.seconds) { CLIENT.lease_keep_alive lease[:id] }
+    watch = CLIENT.watch_prefix(CLUSTER_NAMESPACE)
 
     socket.on_close do
       SOCKETS.delete socket
+      keepalive_loop.cancel
     end
   end
 
@@ -52,15 +61,9 @@ class EtcdController < Application
     render :bad_request, text: %("service" param required) unless service_param
 
     services = service_param.split(',')
-    watch = ETCD_CLIENT.watch_prefix(ETCD_CLUSTER_NAMESPACE)
+    watch = CLIENT.watch_prefix(CLUSTER_NAMESPACE)
     socket.on_close do
       SOCKETS.delete socket
     end
-  end
-
-  post "/unregister", :unregister do
-    service = params["service"]?
-    render :bad_request, text: %("service" param required) unless service
-    ETCD_CLIENT.delete service
   end
 end
