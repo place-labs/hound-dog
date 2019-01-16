@@ -2,11 +2,16 @@
 
 Service sidecar for self-registration and service discovery that utilises Etcd for distributed key-value storage.
 
+## Etcd Namespacing
+
+All services are registered beneath the "service/" namespace e.g. "service/engine/server/192.168.10.3"
+
+
 # API
 
 ## /etcd
 
-### ../register
+### WS ../register
 
 Websocket endpoint to register service node in etcd until termination of socket connection.
 Events for the service under which the node is namespaced are pushed to the client.  
@@ -21,7 +26,7 @@ Optionally, the monitor field allows subscription to all events under requested 
 
 
 
-### ../monitor
+### WS ../monitor
 
 Websocket endpoint to register for all events for desired service namespaces.
 
@@ -30,22 +35,32 @@ Websocket endpoint to register for all events for desired service namespaces.
 | monitor | comma seperated service names to monitor | Array(String) |
 
 
-### ../leader
+### GET ../leader
 
-Returns the who the current etcd node instance believes is the cluster leader.
-
+Returns the node id that the current etcd node instance believes corresponds to the cluster leader.
 
 **Response**
-```json
-{
-  "leader": "instanceid"
-}
-```
+| Value   | Description                              | Type          |
+|--------:|:-----------------------------------------|:--------------|
+| leader  | Id of the believed cluster leader        | UInt64        |
 
+### GET ../services
 
-## Etcd Namespacing
+Lists service namespaces present in the key-value store
 
-All services are registered beneath the "service/" namespace e.g. "service/engine/server/192.168.10.3"
+**Response**
+| Value     | Description                              | Type          |
+|----------:|:-----------------------------------------|:--------------|
+| services  | active service namespaces                | Array(String) |
+
+### GET ../services/:service
+
+Lists service nodes beneath the specified namespace.
+
+**Response**
+| Value     | Description                               | Type          |
+|----------:|:------------------------------------------|:--------------|
+| services  | keys for nodes beneath service namespaces | Array(String) |
 
 
 -----------------------------------------------------------------------------------------------------------  

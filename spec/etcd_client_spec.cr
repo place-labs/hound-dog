@@ -32,9 +32,26 @@ describe EtcdClient do
         expected = ["api", "engine"]
         services.sort.should eq expected
       end
-    end
 
-    pending "registers a service" do
+      it "lists services beneath given namespace" do
+        lease = client.lease_grant etcd_ttl
+        key0, value0 = "service/api/foo", "bar"
+        key1, value1 = "service/api/bar", "bath"
+        key2, value2 = "service/engine/foo", "bar"
+        client.put(key0, value0, lease: lease[:id])
+        client.put(key1, value1, lease: lease[:id])
+        client.put(key2, value2, lease: lease[:id])
+
+        response = curl("GET", "/etcd/services/api")
+        body = JSON.parse(response.body)
+        services = body["services"].as_a.map { |v| v.as_s }
+
+        expected = ["api/bar", "api/foo"]
+        services.sort.should eq expected
+      end
+
+      pending "registers a service" do
+      end
     end
   end
 

@@ -7,7 +7,7 @@ class EtcdController < Application
   private HOST              = ENV["ACA_ETCD_HOST"]? || "127.0.0.1"
   private PORT              = (ENV["ACA_ETCD_PORT"]? || 2379).to_i
   private TTL               = (ENV["ACA_ETCD_TTL"]? || 60).to_i64
-  private CLUSTER_NAMESPACE = ENV["ACA_ETCD_CLUSTER_NAMESPACE"]? || "service/engine/servers"
+  private CLUSTER_NAMESPACE = ENV["ACA_ETCD_CLUSTER_NAMESPACE"]? || "service/engine"
   private LEASE_HEARTBEAT   = (ENV["ACA_ETCD_LEASE_HEARTBEAT"]? || 2).to_i
 
   CLIENT  = EtcdClient.new(HOST, PORT, TTL)
@@ -19,12 +19,26 @@ class EtcdController < Application
     }
   end
 
+  # Find active services.
   get "/services", :services do
     range = CLIENT.range_prefix "service"
     services = range.map { |r| r[:key].split('/')[1] }
     p services
     render json: {
       services: services.uniq,
+    }
+  end
+
+  # TODO: list all service nodes beneath service namespaces
+  get "/services/:service", :service do
+    # TODO: parameter checking that service is offerred?
+    service = params["service"]
+    range = CLIENT.range_prefix ("service/" + service)
+    service_nodes = range.map { |r| r[:key].lstrip("service/") }
+
+    # TODO: Currently just node name. Return list of tuples containing ip and port?
+    render json: {
+      services: service_nodes,
     }
   end
 
