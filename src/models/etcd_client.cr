@@ -1,8 +1,9 @@
-require "awesome-logger"
 require "base64"
 require "http"
 require "json"
+require "logger"
 require "time"
+require "tokenizer"
 require "uri"
 
 # Converter for stringly typed values, such as etcd response values
@@ -19,6 +20,34 @@ class EtcdResponseHeader < ActiveModel::Model
   attribute raft_term : UInt64, converter: StringTypedJSONConverter(UInt64)
 end
 
+class EtcdWatchResponse < ActiveModel::Model
+  attribute result : EtcdWatchResult
+  attribute error : EtcdWatchError
+end
+
+class EtcdWatchError < ActiveModel::Model
+  attribute http_code : Int32
+end
+
+class EtcdWatchResult < ActiveModel::Model
+  attribute events : Array(EtcdWatchEvent) = [] of EtcdWatchEvent
+end
+
+class EtcdWatchKV < ActiveModel::Model
+  include ActiveModel::Validation
+  attribute key : String
+  attribute value : String
+  validates :key, presence: true
+end
+
+class EtcdWatchEvent < ActiveModel::Model
+  include ActiveModel::Validation
+  attribute type : String
+  attribute kv : EtcdWatchKV
+  validates :type, presence: true
+  validates :kv, presence: true
+end
+
 class EtcdStatus < ActiveModel::Model
   attribute header : EtcdResponseHeader
   # version is the cluster protocol version used by the responding member.
@@ -33,17 +62,17 @@ class EtcdStatus < ActiveModel::Model
   attribute raftTerm : UInt64, converter: StringTypedJSONConverter(UInt64) # ameba:disable Style/VariableNames
 end
 
+enum WatchFilter
+  NOPUT
+  NODELETE
+end
+
 ##
 # Class to communicate with an etcd instance over HTTP
 class EtcdClient
   VERSION_PREFIX = "/v3beta"
 
-  enum WatchFilter
-    NOPUT
-    NODELETE
-  end
-
-  getter :host, :port
+  getter :host, :port, :logger
 
   # Creates a new Etcd HTTP client
   # host IP address of the etcd server (default 127.0.0.1)
@@ -53,11 +82,17 @@ class EtcdClient
     @host = host
     @port = port
     @ttl = ttl
+    @logger = Logger.new(STDOUT)
+    # @logger.level = Logger::DEBUG
   end
 
   # Returns the etcd daemon version
   def version
     make_http_request("GET", "/version").body
+  end
+
+  def version_prefix
+    VERSION_PREFIX
   end
 
   # Query status of etcd instance
@@ -101,8 +136,8 @@ class EtcdClient
     body = JSON.parse(response.body)
 
     {
-      id:  body["grantedTTL"].to_s.to_i64,
-      ttl: body["TTL"].to_s.to_i64,
+      granted_ttl: body["grantedTTL"].to_s.to_i64,
+      ttl:         body["TTL"].to_s.to_i64,
     }
   end
 
@@ -152,7 +187,11 @@ class EtcdClient
 
   # Delete key or range of keys
   def delete(key, range_end = "")
-    response = api_execute("POST", "/kv/deleterange", {:key => key, :range_end => range_end})
+    post_body = {
+      :key       => Base64.strict_encode(key),
+      :range_end => Base64.strict_encode(range_end),
+    }
+    response = api_execute("POST", "/kv/deleterange", post_body)
     if response.success?
       body = JSON.parse(response.body)
       body["deleted"].to_s.to_i64
@@ -174,8 +213,8 @@ class EtcdClient
     }
     response = api_execute("POST", "/kv/range", parameters)
     body = JSON.parse(response.body)
-
-    body["kvs"].as_a.map do |h|
+    kvs = body["kvs"]?.try(&.as_a) || [] of JSON::Any
+    kvs.map do |h|
       {
         key:             Base64.decode_string(h["key"].as_s),
         value:           Base64.decode_string(h["value"].as_s),
@@ -199,41 +238,87 @@ class EtcdClient
   #  progress_notify progress_notify is set so that the etcd server will periodically send a WatchResponse with no events to the new watcher
   #                  if there are no recent events. It is useful when clients wish to recover a disconnected watcher starting from
   #                  a recent known revision. The etcd server may decide how often it will send notifications based on current load.         Bool
-  #  filters         filters filter the events at server side before it sends back to the watcher.   `                                       WatchFilter
+  #  filters         filters filter the events at server side before it sends back to the watcher.                                           [WatchFilter]
   #  prev_kv         If prev_kv is set, created watcher gets the previous KV before the event happens.
   #                  If the previous KV is already compacted, nothing will be returned.                                                      Bool
-  def watch_create(key, **opts)
+  def watch(key, **opts, &block : Array(EtcdWatchEvent) -> Void)
     opts = {
-      key:       key,
-      range_end: "",
+      key: key,
     }.merge(opts)
 
-    create_request = {} of Symbol => String | Int64 | Bool | Array(WatchFilter)
+    options = {} of Symbol => String | Int64 | Bool | Array(WatchFilter)
     {:key, :range_end, :prev_kv, :progress_notify, :start_revision, :filters}.each do |k|
-      create_request[k] = opts[k] if opts.has_key?(k)
+      options[k] = opts[k] if opts.has_key?(k)
     end
-    parameters = {
-      :create_request => create_request,
-      :cancel_request => nil,
+
+    # base64 key, range_end
+    {:key, :range_end}.each do |k|
+      option = options[k]?
+      options[k] = Base64.strict_encode(option) if option && option.is_a?(String)
+    end
+
+    post_body = {
+      :create_request => options,
     }
-    response = api_execute("POST", "/watch", parameters)
-    JSON.parse(response.body)
+
+    endpoint = "#{host}:#{port}#{VERSION_PREFIX}/watch"
+    begin
+      HTTP::Client.post(endpoint, body: post_body.to_json) do |stream|
+        logger.debug stream
+
+        consume_io(stream.body_io, json_chunk_tokenizer) do |chunk|
+          response = EtcdWatchResponse.from_json(chunk)
+
+          raise IO::EOFError.new if response.error
+          result = response.result
+          events = response.try(&.result.try(&.events))
+
+          # Ignore the "created" response
+          if events
+            events.all? { |e| e.try(&.kv.try(&.valid?)) }
+            block.call events
+          end
+        end
+      end
+    rescue error
+      logger.error "in watch\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
+    end
   end
 
   # Method to watch keys by prefix
-  def watch_prefix(prefix, **opts)
+  def watch_prefix(prefix, **opts, &block : Array(EtcdWatchEvent) -> Void)
     opts = opts.merge({range_end: prefix_range_end prefix})
-    watch_create(prefix, **opts)
+    watch(prefix, **opts, &block)
   end
 
-  def watch_cancel(watch_id)
-    parameters = {
-      :create_request => nil,
-      :cancel_request => {:watch_id => watch_id},
-    }
-    response = api_execute("POST", "/watch", parameters)
+  def json_chunk_tokenizer
+    Tokenizer.new do |io|
+      length, unpaired = 0, 0
+      loop do
+        char = io.read_char
+        break unless char
+        unpaired += 1 if char == '{'
+        unpaired -= 1 if char == '}'
+        length += 1
+        break if unpaired == 0
+      end
+      unpaired == 0 && length > 0 ? length : -1
+    end
+  end
 
-    response.success? && JSON.parse(response.body)["canceled"].as_bool
+  # Pull IO of stream IO with tokenizer, and call block with tokenized IO
+  # io          Streaming IO                                      IO
+  # tokenizer   Tokenizer class with which the stream is parsed   Tokenizer
+  # block       Block that takes a string                         Block
+  def consume_io(io, tokenizer, &block : String -> Void)
+    raw_data = Bytes.new(4096)
+    while !io.closed?
+      bytes_read = io.read(raw_data)
+      break if bytes_read == 0 # IO was closed
+      tokenizer.extract(raw_data[0, bytes_read]).each do |message|
+        spawn { block.call String.new(message) }
+      end
+    end
   end
 
   # Convert literals to string type
@@ -253,17 +338,15 @@ class EtcdClient
   end
 
   # Method to send HTTP api requests to etcd server.
-  #
-  # path    - etcd server path (etcd server end point)
-  # method  - the request method used
-  # body    - additional parameters used by request method (optional)
+  # method  the request method used                                   String
+  # path    etcd server path (etcd server end point)                  String
+  # body    additional parameters used by request method (optional)   Nil | Hash
   def api_execute(method, path, body : Nil | Hash = nil)
     raise "Unknown HTTP action: #{method}" unless {"GET", "POST", "PUT", "DELETE"}.includes?(method)
     url = VERSION_PREFIX + path
 
     # Etcd expects stringly typed fields in request (artifact of gRPC http gateway)
     body = to_stringly body unless body.nil?
-
     make_http_request(method, url, body)
   end
 
@@ -276,9 +359,9 @@ class EtcdClient
     end
 
     HTTP::Client.new(@host, @port) do |http|
-      Logger.debug("Invoking: '#{method}' against '#{path}'")
+      logger.debug("Invoking: '#{method}' against '#{path}'")
       response = http.exec(method, path, body: body)
-      Logger.debug("Response: #{response.status_code} #{response.body}")
+      logger.debug("Response: #{response.status_code} #{response.body}")
       process_http_response(response)
     end
   end
@@ -287,13 +370,13 @@ class EtcdClient
     # In the case of redirection, original request required.
     case response.status_code
     when 200
-      Logger.debug("HTTP success")
+      logger.debug("HTTP success")
       response
     when 500
       raise "Etcd Error: #{response.body}"
     else
-      Logger.debug("HTTP error")
-      Logger.debug(response.body)
+      logger.debug("HTTP error")
+      logger.debug(response.body)
       raise "HTTP Error: #{response.body}"
     end
   end

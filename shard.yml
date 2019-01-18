@@ -6,10 +6,10 @@ dependencies:
     version: "~> 1.1"
   active-model:
     github: spider-gazelle/active-model
-  awesome-logger:
-    github: tbrand/awesome-logger
   tasker:
     github: spider-gazelle/tasker
+  tokenizer:
+    github: spider-gazelle/tokenizer
 
   # https://github.com/jeromegn/kilt
   # Generic template interface for Crystal

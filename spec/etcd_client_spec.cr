@@ -53,7 +53,24 @@ describe EtcdClient do
         services.sort_by { |s| s[:ip] }.should eq expected
       end
 
-      pending "registers a service" do
+      it "registers a service" do
+        service = "carrots"
+        ip = "127.0.0.1"
+        port = 4242
+        path = "/etcd/register?ip=#{ip}&port=#{port}&service=#{service}"
+        socket = HTTP::WebSocket.new("localhost", path, 6000)
+        socket.run
+
+        # check that service registered
+        response = curl("GET", "/etcd/services/#{service}")
+        body = JSON.parse(response.body)
+        services = body.as_a.map { |v| {ip: v["ip"].as_s, port: v["port"].as_s.to_i} }
+        expected = [{ip: ip, port: port}]
+
+        # close socket, as we have response
+        socket.close
+
+        services.sort_by { |s| s[:ip] }.should eq expected
       end
     end
   end
