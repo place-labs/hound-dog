@@ -44,7 +44,6 @@ class EtcdWatchEvent < ActiveModel::Model
   include ActiveModel::Validation
   attribute type : String
   attribute kv : EtcdWatchKV
-  validates :type, presence: true
   validates :kv, presence: true
 end
 
@@ -275,7 +274,8 @@ class EtcdClient
 
           # Ignore the "created" response
           if events
-            events.all? { |e| e.try(&.kv.try(&.valid?)) }
+            # Ideally... this would refine the type of events passed to the block?
+            raise "Malformed events in watch #{events}" unless events.all? { |e| e.valid? && e.try(&.kv.try(&.valid?)) }
             block.call events
           end
         end
