@@ -29,8 +29,11 @@ describe EtcdClient do
         body = JSON.parse(response.body)
         services = body["services"].as_a.map { |v| v.as_s }
 
-        expected = ["api", "engine"]
-        services.sort.should eq expected
+        services_present = {"api", "engine"}.all? do |service|
+          services.includes? service
+        end
+
+        services_present.should be_true
       end
 
       it "lists services beneath given namespace" do
@@ -60,6 +63,7 @@ describe EtcdClient do
         path = "/etcd/register?ip=#{ip}&port=#{port}&service=#{service}"
         socket = HTTP::WebSocket.new("localhost", path, 6000)
         socket.run
+        socket.on_message { |message| p message }
 
         # check that service registered
         response = curl("GET", "/etcd/services/#{service}")
@@ -69,7 +73,6 @@ describe EtcdClient do
 
         # close socket, as we have response
         socket.close
-
         services.sort_by { |s| s[:ip] }.should eq expected
       end
     end

@@ -12,7 +12,8 @@ class EtcdController < Application
   private LEASE_HEARTBEAT   = (ENV["ACA_ETCD_LEASE_HEARTBEAT"]? || 2).to_i
 
   CLIENT          = EtcdClient.new(HOST, PORT, TTL)
-  EVENT_LISTENERS = {} of String => Set(HTTP::WebSocket)
+  # Map of service namespace to event subscribers
+  EVENT_LISTENERS = Hash(String, Set(HTTP::WebSocket)).new{ |h,k| h[k] = Set(HTTP::WebSocket).new }
   SOCKETS         = [] of HTTP::WebSocket
 
   settings.logger.level = Logger::DEBUG
@@ -23,6 +24,7 @@ class EtcdController < Application
   end
 
   self.watch_namespace EVENT_NAMESPACE, filters: [WatchFilter::NODELETE] do |event|
+    p event
     process_custom_event event
   end
 
@@ -110,14 +112,20 @@ class EtcdController < Application
   # port        port of service                                   Int16
   # monitor     (optional) receive events of additional services  Array(String)
   ws "/register", :register do |socket|
-    service, ip, port = params["service"]?, params["ip"]?, params["port"]?
+    service, ip, port = query_params["service"]?, query_params["ip"]?, query_params["port"]?
     render :bad_request, text: %("service", "ip" and "port" param required) unless service && ip && port
 
     # Secure lease
     lease = CLIENT.lease_grant TTL
-    keepalive_loop = schedule.every(LEASE_HEARTBEAT.seconds) { CLIENT.lease_keep_alive lease[:id] }
-    keepalive_loop.each do |_|
-      keepalive_loop.cancel if socket.closed?
+    keepalive_loop = schedule.every(LEASE_HEARTBEAT.seconds) do
+      p CLIENT.lease_keep_alive lease[:id]
+    end
+
+    # Defer cancellation of keepalive loop
+    spawn do
+      keepalive_loop.each do
+        keepalive_loop.cancel if socket.closed?
+      end
     end
 
     # Add socket as listener to events for services
@@ -134,6 +142,8 @@ class EtcdController < Application
     render :internal_server_error, text: "failed to register service" unless key_set
 
     delegate_event_listener(socket, service_subscriptions)
+  rescue error
+    logger.debug "in register\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
   end
 
   # Subscribe to etcd events over keys
@@ -141,11 +151,11 @@ class EtcdController < Application
     render :bad_request, text: %("monitor" param required) unless params["monitor"]?
 
     service_subscriptions = params["monitor"].split(',')
-
-    delegate_event_listener(socket, service_subscriptions)
     socket.on_close do
       remove_event_listener(socket, service_subscriptions)
     end
+
+    delegate_event_listener(socket, service_subscriptions)
   end
 
   # Spawn a thread to listen to a namespace for events
@@ -163,7 +173,6 @@ class EtcdController < Application
   end
 
   def parse_namespace(key)
-
   end
 
   def self.process_custom_event(event)
@@ -172,8 +181,6 @@ class EtcdController < Application
 
   def self.process_service_event(event)
     # namespace = parse_namespace(event.kv.key)
-    # logger.debug event
-    # p event.kv
     # key = event.kv.key
     # event
     # service = key.split('/')[1]
@@ -188,13 +195,13 @@ class EtcdController < Application
   def self.delegate_message(message, services = [] of String, broadcast = false)
     if broadcast
       SOCKETS.each do |socket|
-        socket.send message
+        socket.send message unless socket.closed?
       end
     else
       # TODO: ensure message sent to a socket only once
       services.each do |service|
         EVENT_LISTENERS[service].each do |socket|
-          socket.send message
+          socket.send message unless socket.closed?
         end
       end
     end

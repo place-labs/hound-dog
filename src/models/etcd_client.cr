@@ -77,10 +77,7 @@ class EtcdClient
   # host IP address of the etcd server (default 127.0.0.1)
   # port Port number of the etcd server (default 4001)
   # TTL of leases (default 60)
-  def initialize(host = "127.0.0.1", port = 4001, ttl : Int64 = 60)
-    @host = host
-    @port = port
-    @ttl = ttl
+  def initialize(@host = "127.0.0.1", @port = 4001, @ttl : Int64 = 60)
     @logger = Logger.new(STDOUT)
     # @logger.level = Logger::DEBUG
   end
