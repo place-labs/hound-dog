@@ -11,13 +11,16 @@ class EtcdController < Application
   private EVENT_NAMESPACE   = ENV["ACA_ETCD_EVENT_NAMESPACE"]? || "event"
   private LEASE_HEARTBEAT   = (ENV["ACA_ETCD_LEASE_HEARTBEAT"]? || 2).to_i
 
-  CLIENT          = EtcdClient.new(HOST, PORT, TTL)
+  CLIENT = EtcdClient.new(HOST, PORT, TTL)
   # Map of service namespace to event subscribers
-  EVENT_LISTENERS = Hash(String, Set(HTTP::WebSocket)).new{ |h,k| h[k] = Set(HTTP::WebSocket).new }
+  EVENT_LISTENERS = Hash(String, Set(HTTP::WebSocket)).new { |h, k| h[k] = Set(HTTP::WebSocket).new }
   SOCKETS         = [] of HTTP::WebSocket
 
   settings.logger.level = Logger::DEBUG
-  def self.logger; settings.logger; end
+
+  def self.logger
+    settings.logger
+  end
 
   self.watch_namespace SERVICE_NAMESPACE do |event|
     process_service_event event
@@ -60,7 +63,7 @@ class EtcdController < Application
     services = body.services || [] of String
 
     # Even when defining defaults on an object in ActiveModel, you still need to nil check?
-    render :bad_request, text: %(Specify services or broadcast) unless body.broadcast || !services.empty?
+    render :bad_request, text: %(Specify services or broadcast) if !body.broadcast && services.empty?
 
     event = {
       type: body.event_type,
@@ -115,25 +118,18 @@ class EtcdController < Application
     service, ip, port = query_params["service"]?, query_params["ip"]?, query_params["port"]?
     render :bad_request, text: %("service", "ip" and "port" param required) unless service && ip && port
 
-    # Secure lease
-    lease = CLIENT.lease_grant TTL
-    keepalive_loop = schedule.every(LEASE_HEARTBEAT.seconds) do
-      p CLIENT.lease_keep_alive lease[:id]
-    end
-
-    # Defer cancellation of keepalive loop
-    spawn do
-      keepalive_loop.each do
-        keepalive_loop.cancel if socket.closed?
-      end
-    end
-
     # Add socket as listener to events for services
     monitor = params["monitor"]? ? params["monitor"].split(',') : [] of String
     service_subscriptions = monitor << service
+
     socket.on_close do
       remove_event_listener(socket, service_subscriptions)
+      socket.close # socket.closed not set automatically
     end
+
+    # Secure lease
+    lease = CLIENT.lease_grant 10
+    spawn keep_alive(lease[:id], lease[:ttl], socket)
 
     # Register service under namespace
     key = {SERVICE_NAMESPACE, service, ip}.join("/")
@@ -144,6 +140,15 @@ class EtcdController < Application
     delegate_event_listener(socket, service_subscriptions)
   rescue error
     logger.debug "in register\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
+  end
+
+  # Method to defer renewal of lease with a dynamic TTL
+  def keep_alive(id, ttl, socket)
+    retry_interval = ttl // 2
+    schedule.in(retry_interval.seconds) do
+      renewed_ttl = CLIENT.lease_keep_alive id
+      spawn keep_alive(id, renewed_ttl, socket) unless socket.closed?
+    end
   end
 
   # Subscribe to etcd events over keys
@@ -226,5 +231,4 @@ class EtcdController < Application
       SOCKETS.delete socket
     end
   end
-
 end

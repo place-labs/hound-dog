@@ -264,11 +264,9 @@ class EtcdClient
 
         consume_io(stream.body_io, json_chunk_tokenizer) do |chunk|
           response = EtcdWatchResponse.from_json(chunk)
-
           raise IO::EOFError.new if response.error
-          result = response.result
-          events = response.try(&.result.try(&.events))
 
+          events = response.try(&.result.try(&.events))
           # Ignore the "created" response
           if events
             # Ideally... this would refine the type of events passed to the block?

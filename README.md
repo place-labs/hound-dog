@@ -6,7 +6,6 @@ Service sidecar for self-registration and service discovery that utilises Etcd f
 
 All services are registered beneath the "service/" namespace e.g. "service/engine/server/192.168.10.3"
 
-
 # API
 
 ## /etcd
@@ -24,8 +23,6 @@ Optionally, the monitor field allows subscription to all events under requested 
 | port    | Service port of registered service                  | Int16         |
 | monitor | Comma seperated service names to monitor (Optional) | Array(String) |
 
-
-
 ### WS ../monitor
 
 Websocket endpoint to register for all events for desired service namespaces.
@@ -34,12 +31,12 @@ Websocket endpoint to register for all events for desired service namespaces.
 |--------:|:-----------------------------------------|:--------------|
 | monitor | comma seperated service names to monitor | Array(String) |
 
-
 ### GET ../leader
 
 Returns the node id that the current etcd node instance believes corresponds to the cluster leader.
 
-**Response**
+#### Response
+
 | Value   | Description                              | Type          |
 |--------:|:-----------------------------------------|:--------------|
 | leader  | Id of the believed cluster leader        | UInt64        |
@@ -48,7 +45,8 @@ Returns the node id that the current etcd node instance believes corresponds to 
 
 Lists service namespaces present in the key-value store
 
-**Response**
+#### Response
+
 | Value     | Description                              | Type          |
 |----------:|:-----------------------------------------|:--------------|
 | services  | active service namespaces                | Array(String) |
@@ -57,14 +55,13 @@ Lists service namespaces present in the key-value store
 
 Lists service nodes beneath the specified namespace.
 
-**Response**
+#### Response
+
 | Value     | Description                               | Type          |
 |----------:|:------------------------------------------|:--------------|
 | services  | keys for nodes beneath service namespaces | Array(String) |
 
-
 -----------------------------------------------------------------------------------------------------------  
-
 
 # Spider-Gazelle Application Template
 
