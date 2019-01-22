@@ -11,10 +11,10 @@ class EtcdController < Application
   private EVENT_NAMESPACE   = ENV["ACA_ETCD_EVENT_NAMESPACE"]? || "event"
   private LEASE_HEARTBEAT   = (ENV["ACA_ETCD_LEASE_HEARTBEAT"]? || 2).to_i
 
-  CLIENT = EtcdClient.new(HOST, PORT, TTL)
+  private CLIENT = EtcdClient.new(HOST, PORT, TTL)
   # Map of service namespace to event subscribers
-  EVENT_LISTENERS = Hash(String, Set(HTTP::WebSocket)).new { |h, k| h[k] = Set(HTTP::WebSocket).new }
-  SOCKETS         = [] of HTTP::WebSocket
+  private EVENT_LISTENERS = Hash(String, Set(HTTP::WebSocket)).new { |h, k| h[k] = Set(HTTP::WebSocket).new }
+  private SOCKETS         = [] of HTTP::WebSocket
 
   settings.logger.level = Logger::DEBUG
 
@@ -27,7 +27,6 @@ class EtcdController < Application
   end
 
   self.watch_namespace EVENT_NAMESPACE, filters: [WatchFilter::NODELETE] do |event|
-    p event
     process_custom_event event
   end
 
@@ -41,6 +40,88 @@ class EtcdController < Application
     render json: {
       version: CLIENT.version,
     }
+  end
+
+  # List active services.
+  get "/services", :services do
+    range = CLIENT.range_prefix "service"
+    services = range.map { |r| r[:key].split('/')[1] }
+
+    render json: {
+      services: services.uniq,
+    }
+  end
+
+  # List active service nodes beneath a service namespace.
+  get "/services/:service", :service do
+    render json: EtcdController.service_nodes params["service"]
+  end
+
+  # List nodes under a service namespace
+  def self.service_nodes(service)
+    namespace = "service/#{service}/"
+    range = CLIENT.range_prefix namespace
+    range.map do |n|
+      ip, port = n[:value].split(':')
+      {
+        ip:   ip,
+        port: port,
+      }
+    end
+  end
+
+  # Register with local instance of etcd, receive node events over websocket
+  # service     service namespace to register beneath             String
+  # ip          ip of service                                     String
+  # port        port of service                                   Int16
+  # monitor     (optional) receive events of additional services  Array(String)
+  ws "/register", :register do |socket|
+    service, ip, port = query_params["service"]?, query_params["ip"]?, query_params["port"]?
+    render :bad_request, text: %("service", "ip" and "port" param required) unless service && ip && port
+
+    # Add socket as listener to events for services
+    monitor = params["monitor"]? ? params["monitor"].split(',') : [] of String
+    service_subscriptions = monitor << service
+
+    # Secure and maintain lease
+    lease = CLIENT.lease_grant TTL
+    spawn keep_alive(lease[:id], lease[:ttl], socket)
+
+    # Register service under namespace
+    key = {SERVICE_NAMESPACE, service, ip}.join("/")
+    value = "#{ip}:#{port}"
+    key_set = CLIENT.put(key, value, lease: lease[:id])
+    render :internal_server_error, text: "failed to register service" unless key_set
+
+    delegate_event_listener(socket, service_subscriptions)
+    socket.on_close do
+      remove_event_listener(socket, service_subscriptions)
+      socket.close # socket.closed not set automatically
+    end
+  rescue error
+    logger.debug "in register\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
+  end
+
+  # Subscribe to etcd events over keys
+  ws "/monitor", :monitor do |socket|
+    render :bad_request, text: %("monitor" param required) unless params["monitor"]?
+
+    service_subscriptions = params["monitor"].split(',')
+    delegate_event_listener(socket, service_subscriptions)
+    socket.on_close do
+      remove_event_listener(socket, service_subscriptions)
+    end
+  rescue error
+    logger.debug "in monitor\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
+  end
+
+  # Method to defer renewal of lease with a dynamic TTL
+  def keep_alive(id, ttl, socket)
+    retry_interval = ttl // 2
+    schedule.in(retry_interval.seconds) do
+      renewed_ttl = CLIENT.lease_keep_alive id
+      spawn keep_alive(id, renewed_ttl, socket) unless socket.closed?
+    end
   end
 
   class CustomEventRequest < ActiveModel::Model
@@ -66,8 +147,8 @@ class EtcdController < Application
     render :bad_request, text: %(Specify services or broadcast) if !body.broadcast && services.empty?
 
     event = {
-      type: body.event_type,
-      body: body.event_body,
+      event_type: body.event_type,
+      event_body: body.event_body,
     }.to_json
 
     # Register event under respective namespace keys
@@ -79,96 +160,25 @@ class EtcdController < Application
                 end
                 keys_set.all?
               end
+
     render :internal_server_error, text: "Failed to propagate event" unless key_set
+    head :ok
   end
 
-  # List nodes under a service namespace
-  def service_nodes(service)
-    namespace = "service/#{service}/"
-    range = CLIENT.range_prefix namespace
-    range.map do |n|
-      ip, port = n[:value].split(':')
-      {
-        ip:   ip,
-        port: port,
-      }
-    end
-  end
-
-  # List active services.
-  get "/services", :services do
-    range = CLIENT.range_prefix "service"
-    services = range.map { |r| r[:key].split('/')[1] }
-    render json: {
-      services: services.uniq,
-    }
-  end
-
-  # List active service nodes beneath a service namespace.
-  get "/services/:service", :service do
-    render json: service_nodes params["service"]
-  end
-
-  # Register with local instance of etcd, receive node events over websocket
-  # service     service namespace to register beneath             String
-  # ip          ip of service                                     String
-  # port        port of service                                   Int16
-  # monitor     (optional) receive events of additional services  Array(String)
-  ws "/register", :register do |socket|
-    service, ip, port = query_params["service"]?, query_params["ip"]?, query_params["port"]?
-    render :bad_request, text: %("service", "ip" and "port" param required) unless service && ip && port
-
-    # Add socket as listener to events for services
-    monitor = params["monitor"]? ? params["monitor"].split(',') : [] of String
-    service_subscriptions = monitor << service
-
-    socket.on_close do
-      remove_event_listener(socket, service_subscriptions)
-      socket.close # socket.closed not set automatically
-    end
-
-    # Secure lease
-    lease = CLIENT.lease_grant 10
-    spawn keep_alive(lease[:id], lease[:ttl], socket)
-
-    # Register service under namespace
-    key = {SERVICE_NAMESPACE, service, ip}.join("/")
-    value = "#{ip}:#{port}"
-    key_set = CLIENT.put(key, value, lease: lease[:id])
-    render :internal_server_error, text: "failed to register service" unless key_set
-
-    delegate_event_listener(socket, service_subscriptions)
-  rescue error
-    logger.debug "in register\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
-  end
-
-  # Method to defer renewal of lease with a dynamic TTL
-  def keep_alive(id, ttl, socket)
-    retry_interval = ttl // 2
-    schedule.in(retry_interval.seconds) do
-      renewed_ttl = CLIENT.lease_keep_alive id
-      spawn keep_alive(id, renewed_ttl, socket) unless socket.closed?
-    end
-  end
-
-  # Subscribe to etcd events over keys
-  ws "/monitor", :monitor do |socket|
-    render :bad_request, text: %("monitor" param required) unless params["monitor"]?
-
-    service_subscriptions = params["monitor"].split(',')
-    socket.on_close do
-      remove_event_listener(socket, service_subscriptions)
-    end
-
-    delegate_event_listener(socket, service_subscriptions)
-  end
+  alias WatchEvent = NamedTuple(
+    event_type: String,
+    namespace: String,
+    service: String | Nil,
+    key: String,
+    value: String | Nil,
+  )
 
   # Spawn a thread to listen to a namespace for events
-  def self.watch_namespace(namespace, **opts, &block : EtcdWatchEvent -> Void)
+  def self.watch_namespace(namespace, **opts, &block : WatchEvent -> Void)
     spawn do
       logger.debug "watching #{namespace}"
       CLIENT.watch_prefix namespace, **opts do |events|
-        events.each { |event| block.call event }
+        events.each { |event| block.call self.parse_event(event) }
       end
     end
   rescue error
@@ -177,20 +187,51 @@ class EtcdController < Application
     watch_namespace namespace, **opts, &block
   end
 
-  def parse_namespace(key)
+  def self.parse_event(event) : WatchEvent
+    kv = event.try(&.kv)
+    key = kv.try(&.key)
+    raise "Malformed event in parse_event" unless kv && key
+    value = kv.try(&.value)
+    # Event field is default empty on PUT events
+    event_type = event.try(&.type) || "PUT"
+    tokens = key.split('/')
+
+    {
+      event_type: event_type,
+      namespace:  tokens[0],
+      service:    tokens[1]?,
+      key:        key,
+      value:      value,
+    }
   end
 
   def self.process_custom_event(event)
-    self.delegate_message message: event.to_json, broadcast: true
+    service = event[:service]
+    message = {
+      namespace: event[:namespace],
+      body:      event[:value].to_json,
+    }.to_json
+
+    if service
+      self.delegate_message message: message, services: [service]
+    else
+      self.delegate_message message: message, broadcast: true
+    end
   end
 
   def self.process_service_event(event)
-    # namespace = parse_namespace(event.kv.key)
-    # key = event.kv.key
-    # event
-    # service = key.split('/')[1]
-    # nodes = service_nodes service
-    self.delegate_message message: event.to_json, broadcast: true
+    service = event[:service]
+    raise "Undefined service in process service event" unless service
+
+    message = {
+      namespace: event[:namespace],
+      body:      {
+        event_type: event[:event_type],
+        services:   self.service_nodes service,
+      },
+    }.to_json
+
+    self.delegate_message message: message, services: [service]
   end
 
   # Send message to listeners on each service

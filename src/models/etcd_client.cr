@@ -23,6 +23,7 @@ end
 class EtcdWatchResponse < ActiveModel::Model
   attribute result : EtcdWatchResult
   attribute error : EtcdWatchError
+  attribute created : Bool = false
 end
 
 class EtcdWatchError < ActiveModel::Model
@@ -37,7 +38,10 @@ class EtcdWatchKV < ActiveModel::Model
   include ActiveModel::Validation
   attribute key : String
   attribute value : String
-  validates :key, presence: true
+  validates :key, if: Proc.new(EtcdWatchKV) do |kv|
+    key = kv["key"]?
+    key != nil
+  end
 end
 
 class EtcdWatchEvent < ActiveModel::Model
@@ -45,6 +49,10 @@ class EtcdWatchEvent < ActiveModel::Model
   attribute type : String
   attribute kv : EtcdWatchKV
   validates :kv, presence: true
+  validates :kv, if: Proc.new(EtcdWatchEvent) do |event|
+    kv = event["kv"]?
+    kv != nil
+  end
 end
 
 class EtcdStatus < ActiveModel::Model
@@ -190,10 +198,14 @@ class EtcdClient
     response = api_execute("POST", "/kv/deleterange", post_body)
     if response.success?
       body = JSON.parse(response.body)
-      body["deleted"].to_s.to_i64
+      body["deleted"]?.try(&.to_s.to_i64) || 0
     else
       nil
     end
+  end
+
+  def delete_prefix(prefix)
+    delete(prefix, prefix_range_end prefix)
   end
 
   # Method to calculate range_end for given prefix
@@ -266,11 +278,18 @@ class EtcdClient
           response = EtcdWatchResponse.from_json(chunk)
           raise IO::EOFError.new if response.error
 
-          events = response.try(&.result.try(&.events))
+          events = response.try(&.result.try(&.events)) || [] of EtcdWatchEvent
+          events = events.map do |event|
+            event.kv = event.try(&.kv).try do |kv|
+              kv.key = kv.try(&.key).try { |k| Base64.decode_string k }
+              kv.value = kv.try(&.value).try { |v| Base64.decode_string v }
+              kv
+            end
+            event
+          end
+
           # Ignore the "created" response
-          if events
-            # Ideally... this would refine the type of events passed to the block?
-            raise "Malformed events in watch #{events}" unless events.all? { |e| e.valid? && e.try(&.kv.try(&.valid?)) }
+          if !response.created
             block.call events
           end
         end
