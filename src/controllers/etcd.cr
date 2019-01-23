@@ -46,11 +46,10 @@ class EtcdController < Application
   get "/leader", :version do
     status = CLIENT.status
     render json: {
-      leader: status[:leader],
+      leader:    status[:leader],
       member_id: status[:member_id],
     }
   end
-
 
   # List active services.
   get "/services", :services do
@@ -75,7 +74,7 @@ class EtcdController < Application
       ip, port = n[:value].split(':')
       {
         ip:   ip,
-        port: port,
+        port: port.to_u32,
       }
     end
   end

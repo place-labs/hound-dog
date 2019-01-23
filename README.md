@@ -4,7 +4,7 @@ Service sidecar for self-registration and service discovery that utilises Etcd f
 
 ## Etcd Namespacing
 
-All services are registered beneath the "service/" namespace e.g. "service/engine/server/192.168.10.3"
+All services are registered beneath the "service/" namespace e.g. "service/engine/192.168.10.3"
 
 ## API
 
@@ -124,7 +124,6 @@ Fields event_body and event_type as set in `/etcd/event` request.
 
 | Value    | Description                             | Type     |
 |---------:|:----------------------------------------|:---------|
-| name     | Name service is registered under        | String   |
 | ip       | Ip of registered service                | String   |
 | port     | Service port of registered service      | Int16    |
 

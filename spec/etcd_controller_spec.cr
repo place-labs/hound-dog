@@ -15,11 +15,11 @@ describe EtcdController do
 
     it "performs leader election" do
       response = curl("GET", "/etcd/leader")
-      p response.body
       body = JSON.parse response.body
       leader = body["leader"]
       member_id = body["member_id"]
-      # Single member of etcd cluster
+
+      # single member of etcd cluster
       leader.should eq member_id
     end
 
@@ -57,7 +57,7 @@ describe EtcdController do
 
       response = curl("GET", "/etcd/services/api")
       body = JSON.parse(response.body)
-      services = body.as_a.map { |v| {ip: v["ip"].as_s, port: v["port"].as_s.to_i} }
+      services = body.as_a.map { |v| {ip: v["ip"].as_s, port: v["port"].as_i} }
 
       expected = [
         {ip: "bath", port: 42},
@@ -78,7 +78,7 @@ describe EtcdController do
       # check that service registered
       response = curl("GET", "/etcd/services/#{service}")
       body = JSON.parse(response.body)
-      services = body.as_a.map { |v| {ip: v["ip"].as_s, port: v["port"].as_s.to_i} }
+      services = body.as_a.map { |v| {ip: v["ip"].as_s, port: v["port"].as_i} }
       expected = [{ip: ip, port: port}]
 
       # close socket, as we have response
@@ -91,7 +91,7 @@ describe EtcdController do
       path = "/etcd/monitor?monitor=#{service}"
 
       channel = Channel(String).new
-      spawn do 
+      spawn do
         socket = HTTP::WebSocket.new("localhost", path, 6000)
         socket.on_message do |message|
           channel.send message
@@ -100,16 +100,16 @@ describe EtcdController do
         socket.run
       end
 
-      lease = client.lease_grant etcd_ttl
+      # set a key under the monitored namespace
       ip, port = "0.0.0.0", 42
-      key0, value0 = "service/#{service}/#{ip}", "#{ip}:#{port}"
-      key_set = client.put(key0, value0, lease: lease[:id])
-      message = JSON.parse(channel.receive)
+      client.put("service/#{service}/#{ip}", "#{ip}:#{port}")
 
-      services = message["body"]["services"].as_a
+      # asynchronously receive event
+      message = JSON.parse(channel.receive)
+      services = message["body"]["services"].as_a.map { |v| {ip: v["ip"].as_s, port: v["port"].as_i} }
 
       expected = [{ip: ip, port: port}]
-      true.should be_true
+      services.should eq expected
     end
 
     it "sends custom events" do
@@ -117,7 +117,7 @@ describe EtcdController do
       path = "/etcd/monitor?monitor=#{service}"
 
       channel = Channel(String).new
-      spawn do 
+      spawn do
         socket = HTTP::WebSocket.new("127.0.0.1", path, 6000)
         socket.on_message do |message|
           channel.send message
@@ -126,15 +126,16 @@ describe EtcdController do
         socket.run
       end
 
+      # define custom event
       event_type = "paddling"
       event_body = "THWACK!"
       message = {
         :event_type => event_type,
         :event_body => event_body,
-        :services => [service],
+        :services   => [service],
       }.to_json
-
       curl("POST", "/etcd/event", body: message)
+
       message = channel.receive
       result = JSON.parse(message)["body"]
 
