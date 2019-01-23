@@ -18,8 +18,9 @@ describe EtcdClient do
     end
 
     it "queries status of cluster" do
-      status = client.status
-      status.should be_a EtcdStatus
+      keys = client.status.keys
+      expected_keys = {:leader, :member_id, :version}
+      keys.should eq expected_keys
     end
 
     it "queries leader" do
@@ -61,13 +62,18 @@ describe EtcdClient do
   end
 
   describe "Key/Value" do
+    test_prefix = "TEST"
+    Spec.before_each do
+      client.delete_prefix test_prefix
+    end
+
     it "sets a value" do
-      response = client.put("hello", "world")
+      response = client.put("#{test_prefix}/hello", "world")
       response.should be_true
     end
 
     it "queries a range of keys" do
-      key, value = "foo", "bar"
+      key, value = "#{test_prefix}/foo", "bar"
       client.put(key, value)
       range = client.range(key)
 
@@ -77,8 +83,8 @@ describe EtcdClient do
 
     it "queries keys by prefix" do
       lease = client.lease_grant etcd_ttl
-      key0, value0 = "foo", "bar"
-      key1, value1 = "foot", "bath"
+      key0, value0 = "#{test_prefix}/foo", "bar"
+      key1, value1 = "#{test_prefix}/foot", "bath"
 
       client.put(key0, value0, lease: lease[:id])
       client.put(key1, value1, lease: lease[:id])

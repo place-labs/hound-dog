@@ -42,6 +42,16 @@ class EtcdController < Application
     }
   end
 
+  # Get leader id and current etcd node member_id
+  get "/leader", :version do
+    status = CLIENT.status
+    render json: {
+      leader: status[:leader],
+      member_id: status[:member_id],
+    }
+  end
+
+
   # List active services.
   get "/services", :services do
     range = CLIENT.range_prefix "service"
@@ -77,7 +87,7 @@ class EtcdController < Application
   # monitor     (optional) receive events of additional services  Array(String)
   ws "/register", :register do |socket|
     service, ip, port = query_params["service"]?, query_params["ip"]?, query_params["port"]?
-    render :bad_request, text: %("service", "ip" and "port" param required) unless service && ip && port
+    raise %("service", "ip" and "port" param required) unless service && ip && port
 
     # Add socket as listener to events for services
     monitor = params["monitor"]? ? params["monitor"].split(',') : [] of String
@@ -98,19 +108,21 @@ class EtcdController < Application
       remove_event_listener(socket, service_subscriptions)
       socket.close # socket.closed not set automatically
     end
+    head :ok
   rescue error
     logger.debug "in register\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
   end
 
   # Subscribe to etcd events over keys
   ws "/monitor", :monitor do |socket|
-    render :bad_request, text: %("monitor" param required) unless params["monitor"]?
-
-    service_subscriptions = params["monitor"].split(',')
+    monitor = query_params["monitor"]?
+    raise %("monitor" param required) unless monitor
+    service_subscriptions = monitor.split(',')
     delegate_event_listener(socket, service_subscriptions)
     socket.on_close do
       remove_event_listener(socket, service_subscriptions)
     end
+    head :ok
   rescue error
     logger.debug "in monitor\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
   end
@@ -145,7 +157,6 @@ class EtcdController < Application
 
     # Even when defining defaults on an object in ActiveModel, you still need to nil check?
     render :bad_request, text: %(Specify services or broadcast) if !body.broadcast && services.empty?
-
     event = {
       event_type: body.event_type,
       event_body: body.event_body,
@@ -209,7 +220,7 @@ class EtcdController < Application
     service = event[:service]
     message = {
       namespace: event[:namespace],
-      body:      event[:value].to_json,
+      body:      event[:value],
     }.to_json
 
     if service

@@ -102,21 +102,27 @@ class EtcdClient
   # Query status of etcd instance
   def status
     response_body = api_execute("POST", "/maintenance/status").body
-    EtcdStatus.from_json(response_body)
+    status = EtcdStatus.from_json(response_body)
+    {
+      leader: status.leader,
+      member_id: status.header.try(&.member_id),
+      version: status.version,
+    }
   end
 
   # Get the current leader
   def leader
-    status.leader
+    status[:leader]
   end
+
 
   # Method to request a lease
   # ttl   ttl of granted lease
   # id    id of 0 prompts etcd to assign any id to lease
   def lease_grant(ttl : Int64 = @ttl, id = 0)
     response = api_execute("POST", "/lease/grant", {:TTL => ttl, :ID => 0})
-    body = JSON.parse(response.body)
 
+    body = JSON.parse(response.body)
     {
       id:  body["ID"].to_s.to_i64,
       ttl: body["TTL"].to_s.to_i64,
@@ -279,6 +285,7 @@ class EtcdClient
           raise IO::EOFError.new if response.error
 
           events = response.try(&.result.try(&.events)) || [] of EtcdWatchEvent
+          # Unmarshall Base64 encoded key and value
           events = events.map do |event|
             event.kv = event.try(&.kv).try do |kv|
               kv.key = kv.try(&.key).try { |k| Base64.decode_string k }

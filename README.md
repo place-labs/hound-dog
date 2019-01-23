@@ -60,13 +60,15 @@ Emit a custom event to some/all namespaces
 
 ### GET ../etcd/leader
 
-Returns the node id that the current etcd node instance believes corresponds to the cluster leader.
+Returns the member_id the current etcd node instance believes corresponds to the cluster leader and id of connected etcd instance.
+Useful for performing leader election.
 
 #### Response
 
-| Value   | Description                              | Type          |
-|--------:|:-----------------------------------------|:--------------|
-| leader  | Id of the believed cluster leader        | UInt64        |
+| Value      | Description                              | Type          |
+|-----------:|:-----------------------------------------|:--------------|
+| leader     | Id of the believed cluster leader        | UInt64        |
+| member_id  | Id of connected etcd instance            | UInt64        |
 
 ### GET ../etcd/services
 

@@ -13,6 +13,16 @@ describe EtcdController do
       client.delete_prefix "service"
     end
 
+    it "performs leader election" do
+      response = curl("GET", "/etcd/leader")
+      p response.body
+      body = JSON.parse response.body
+      leader = body["leader"]
+      member_id = body["member_id"]
+      # Single member of etcd cluster
+      leader.should eq member_id
+    end
+
     it "discovers available services" do
       lease = client.lease_grant etcd_ttl
 
@@ -76,22 +86,63 @@ describe EtcdController do
       services.sort_by { |s| s[:ip] }.should eq expected
     end
 
-    pending "monitors a service" do
+    it "monitors a service" do
       service = "potato"
-      path = "/etcd/monitor?service=#{service}"
-      socket = HTTP::WebSocket.new("localhost", path, 6000)
+      path = "/etcd/monitor?monitor=#{service}"
 
-      socket.on_message do |message|
-        body = (JSON.parse message).as_h
-        p body
-        socket.close
+      channel = Channel(String).new
+      spawn do 
+        socket = HTTP::WebSocket.new("localhost", path, 6000)
+        socket.on_message do |message|
+          channel.send message
+          socket.close
+        end
+        socket.run
       end
 
-      spawn { socket.run }
       lease = client.lease_grant etcd_ttl
-      key0, value0 = "service/#{service}/foo", "foo:42"
-      client.put(key0, value0, lease: lease[:id])
-      sleep
+      ip, port = "0.0.0.0", 42
+      key0, value0 = "service/#{service}/#{ip}", "#{ip}:#{port}"
+      key_set = client.put(key0, value0, lease: lease[:id])
+      message = JSON.parse(channel.receive)
+
+      services = message["body"]["services"].as_a
+
+      expected = [{ip: ip, port: port}]
+      true.should be_true
+    end
+
+    it "sends custom events" do
+      service = "masala"
+      path = "/etcd/monitor?monitor=#{service}"
+
+      channel = Channel(String).new
+      spawn do 
+        socket = HTTP::WebSocket.new("127.0.0.1", path, 6000)
+        socket.on_message do |message|
+          channel.send message
+          socket.close
+        end
+        socket.run
+      end
+
+      event_type = "paddling"
+      event_body = "THWACK!"
+      message = {
+        :event_type => event_type,
+        :event_body => event_body,
+        :services => [service],
+      }.to_json
+
+      curl("POST", "/etcd/event", body: message)
+      message = channel.receive
+      result = JSON.parse(message)["body"]
+
+      expected = {
+        :event_type => event_type,
+        :event_body => event_body,
+      }.to_json
+      result.should eq expected
     end
   end
 end
