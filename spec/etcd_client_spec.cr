@@ -1,6 +1,5 @@
 require "./spec_helper"
 require "json"
-require "tasker"
 
 describe EtcdClient do
   etcd_host = ENV["ACA_ETCD_HOST"]? || "127.0.0.1"
@@ -32,12 +31,15 @@ describe EtcdClient do
   describe "Leases" do
     it "requests a lease" do
       lease = client.lease_grant etcd_ttl
+
       lease[:ttl].should eq etcd_ttl
+      lease.has_key?(:id).should be_true
     end
 
     it "queries ttl of lease" do
       lease = client.lease_grant etcd_ttl
       lease_ttl = client.lease_ttl lease[:id]
+
       lease_ttl[:ttl].should be <= etcd_ttl
     end
 
@@ -45,18 +47,21 @@ describe EtcdClient do
       lease = client.lease_grant etcd_ttl
       active_leases = client.leases
       lease_present = active_leases.any? { |id| id == lease[:id] }
+
       lease_present.should be_true
     end
 
     it "revokes a lease" do
       lease = client.lease_grant etcd_ttl
       response = client.lease_revoke lease[:id]
+
       response.should be_true
     end
 
     it "extends a lease" do
       lease = client.lease_grant etcd_ttl
       new_ttl = client.lease_keep_alive lease[:id]
+
       new_ttl.should be > 0
     end
   end
@@ -69,6 +74,7 @@ describe EtcdClient do
 
     it "sets a value" do
       response = client.put("#{test_prefix}/hello", "world")
+
       response.should be_true
     end
 

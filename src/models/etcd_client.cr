@@ -2,9 +2,7 @@ require "base64"
 require "http"
 require "json"
 require "logger"
-require "time"
 require "tokenizer"
-require "uri"
 
 # Types for watch event filters
 enum WatchFilter
@@ -351,7 +349,7 @@ class EtcdWatchResponse < ActiveModel::Model
 end
 
 class EtcdWatchError < ActiveModel::Model
-  attribute http_code : Int32
+  attribute http_code : Int32, converter: StringTypedJSONConverter(Int32)
 end
 
 class EtcdWatchResult < ActiveModel::Model

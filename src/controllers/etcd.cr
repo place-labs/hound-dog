@@ -1,5 +1,4 @@
 require "../models/etcd_client"
-require "tasker"
 
 class EtcdController < Application
   base "/etcd"
