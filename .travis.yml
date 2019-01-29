@@ -1,6 +1,24 @@
 language: crystal
+
+before_install:
+    # Install ETCD
+    - export ETCD_VERSION=${ETCD_VERSION:-v3.3.10}
+    - wget https://github.com/coreos/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz | tar xzf -
+    - sudo mkdir -p /opt/etcd/{data,bin}
+    - sudo mv etcd-${ETCD_VERSION}-linux-amd64/etcd{ctl,} /opt/etcd/bin
+    - sudo chmod g+rwX /opt/etcd
+    - export ETCD_ADVERTISE_CLIENT_URLS="http://127.0.0.1:2379"
+    - export ETCD_DATA_DIR="/opt/etcd/data/"
+    - export ETCD_LISTEN_CLIENT_URLS="http://0.0.0.0:2379"
+    - export PATH="/opt/etcd/bin:$PATH"
+    - sudo -E etcd &
+    - export TRAVIS_TEST=true
+
 install:
   - shards install
 script:
   - crystal spec
   - bin/ameba
+
+sudo: required
+dist: xenial
