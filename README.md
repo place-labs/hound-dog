@@ -2,9 +2,15 @@
 
 Service sidecar for self-registration and service discovery that utilises Etcd for distributed key-value storage.
 
-## Etcd Namespacing
+## Etcd
+
+### Namespacing
 
 All services are registered beneath the "service/" namespace e.g. "service/engine/192.168.10.3"
+
+### Version
+
+Developed against etcd-server `v3.3.10`, and `ETCD_API=3`
 
 ## API
 

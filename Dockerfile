@@ -18,3 +18,4 @@ COPY --from=0 /src/bin/app /app
 EXPOSE 8080
 ENTRYPOINT ["/app"]
 CMD ["/app", "-b", "0.0.0.0", "-p", "8080"]
+

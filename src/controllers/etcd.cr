@@ -29,7 +29,7 @@ class EtcdController < Application
     process_custom_event event
   end
 
-  def initialize(@context : HTTP::Server::Context, @action_name = :index)
+  def initialize(@context : HTTP::Server::Context, @action_name = :index, @__head_request__ = false)
     super
     logger.level = Logger::DEBUG
   end
