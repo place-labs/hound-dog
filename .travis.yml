@@ -1,28 +1,20 @@
 language: crystal
 
-before_install:
-    # Install ETCD
-    - export ETCD_VERSION=${ETCD_VERSION:-v3.3.10}
-    - wget -q https://github.com/coreos/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz
-    - tar xf etcd-${ETCD_VERSION}-linux-amd64.tar.gz
-    - sudo mkdir -p /opt/etcd/{data,bin}
-    - sudo mv etcd-${ETCD_VERSION}-linux-amd64/etcd{ctl,} /opt/etcd/bin
-    - sudo chmod g+rwX /opt/etcd
-    - export PATH="/opt/etcd/bin:$PATH"
+services:
+  - docker
 
-    - sudo \
-      ETCD_ADVERTISE_CLIENT_URLS="http://127.0.0.1:2379" \
-      ETCD_DATA_DIR="/opt/etcd/data/" \
-      ETCD_LISTEN_CLIENT_URLS="http://0.0.0.0:2379" \
-      /opt/etcd/bin/etcd &
-    - sleep 5
-    - export TRAVIS_TEST=true
+before_install:
+  # Install ETCD
+  - docker run -p "2379:2379" -p "2380:2380" -e ALLOW_NONE_AUTHENTICATION=yes -d bitnami/etcd:3.3.13
+  - sleep 5
+  - export TRAVIS_TEST=true
 
 install:
   - shards install
+
+before_script:
+  - sleep 5
+
 script:
   - crystal spec
   - bin/ameba
-
-sudo: required
-dist: xenial
