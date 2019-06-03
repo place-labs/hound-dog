@@ -10,7 +10,7 @@ All services are registered beneath the "service/" namespace e.g. "service/engin
 
 ### Version
 
-Developed against etcd-server `v3.3.10`, and `ETCD_API=3`
+Developed against etcd-server `v3.3.13`, and `ETCD_API=3`
 
 ## API
 

@@ -3,12 +3,13 @@ require "../config"
 class RootController < Application
   base "/"
 
-  get "/ping", :ping do
-    render text: "pong"
+  get "/healthz", :healthz do
+    head :ok
   end
 
   get "/version", :version do
     render json: {
+      app:     APP_NAME,
       version: VERSION,
     }
   end

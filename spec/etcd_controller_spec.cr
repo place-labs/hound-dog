@@ -1,5 +1,4 @@
-require "./spec_helper"
-require "json"
+require "./helper"
 
 describe EtcdController do
   etcd_host = ENV["ACA_ETCD_HOST"]? || "127.0.0.1"

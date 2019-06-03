@@ -1,7 +1,10 @@
-require "../models/etcd_client"
+require "tasker"
+require "../etcd_client"
 
 class EtcdController < Application
   base "/etcd"
+
+  @@schedule : Tasker?
 
   private HOST              = ENV["ACA_ETCD_HOST"]? || "127.0.0.1"
   private PORT              = (ENV["ACA_ETCD_PORT"]? || 2379).to_i
@@ -11,6 +14,7 @@ class EtcdController < Application
   private LEASE_HEARTBEAT   = (ENV["ACA_ETCD_LEASE_HEARTBEAT"]? || 2).to_i
 
   private CLIENT = EtcdClient.new(HOST, PORT, TTL)
+
   # Map of service namespace to event subscribers
   private EVENT_LISTENERS = Hash(String, Set(HTTP::WebSocket)).new { |h, k| h[k] = Set(HTTP::WebSocket).new }
   private SOCKETS         = [] of HTTP::WebSocket
@@ -19,6 +23,10 @@ class EtcdController < Application
 
   def self.logger
     settings.logger
+  end
+
+  def self.schedule
+    (@@schdeule ||= Tasker.instance).not_nil!
   end
 
   self.watch_namespace SERVICE_NAMESPACE do |event|
@@ -31,7 +39,7 @@ class EtcdController < Application
 
   def initialize(@context : HTTP::Server::Context, @action_name = :index, @__head_request__ = false)
     super
-    logger.level = Logger::DEBUG
+    logger.level = Logger::WARN
   end
 
   # Get etcd version response
@@ -108,7 +116,7 @@ class EtcdController < Application
     end
     head :ok
   rescue error
-    logger.debug "in register\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
+    logger.error "in register\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
   end
 
   # Subscribe to etcd events over keys
@@ -122,13 +130,13 @@ class EtcdController < Application
     end
     head :ok
   rescue error
-    logger.debug "in monitor\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
+    logger.error "in monitor\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
   end
 
   # Method to defer renewal of lease with a dynamic TTL
   def keep_alive(id, ttl, socket)
     retry_interval = ttl // 2
-    schedule.in(retry_interval.seconds) do
+    EtcdController.schedule.in(retry_interval.seconds) do
       renewed_ttl = CLIENT.lease_keep_alive id
       spawn keep_alive(id, renewed_ttl, socket) unless socket.closed?
     end
@@ -185,13 +193,13 @@ class EtcdController < Application
   # Spawn a thread to listen to a namespace for events
   def self.watch_namespace(namespace, **opts, &block : WatchEvent -> Void)
     spawn do
-      logger.debug "watching #{namespace}"
+      logger.info "Watching #{namespace}"
       CLIENT.watch_prefix namespace, **opts do |events|
         events.each { |event| block.call self.parse_event(event) }
       end
     end
   rescue error
-    logger.debug "in watch_namespace #{namespace}\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
+    logger.error "in watch_namespace #{namespace}\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
     sleep 1 # Delay retry to prevent hammering etcd
     watch_namespace namespace, **opts, &block
   end

@@ -1,0 +1,46 @@
+version: 1.0
+shards:
+  action-controller:
+    github: spider-gazelle/action-controller
+    version: 1.4.7
+
+  active-model:
+    github: spider-gazelle/active-model
+    version: 1.4.1
+
+  ameba:
+    github: veelenga/ameba
+    version: 0.9.1
+
+  bisect:
+    github: spider-gazelle/bisect
+    version: 1.1.1
+
+  coverage:
+    github: anykeyh/crystal-coverage
+    commit: a26f386780123beee890ad93b71fd9f9ecbe335a
+
+  cron_parser:
+    github: kostya/cron_parser
+    version: 0.2.0
+
+  habitat:
+    github: luckyframework/habitat
+    version: 0.4.3
+
+  kilt:
+    github: jeromegn/kilt
+    version: 0.4.0
+
+  radix:
+    github: luislavena/radix
+    version: 0.3.9
+
+  tasker:
+    github: spider-gazelle/tasker
+    version: 1.2.0
+
+  tokenizer:
+    github: spider-gazelle/tokenizer
+    version: 1.0.1
+
