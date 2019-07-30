@@ -2,15 +2,15 @@ version: 1.0
 shards:
   action-controller:
     github: spider-gazelle/action-controller
-    version: 1.4.7
+    version: 1.6.0
 
   active-model:
     github: spider-gazelle/active-model
-    version: 1.4.1
+    version: 1.6.0
 
   ameba:
     github: veelenga/ameba
-    version: 0.9.1
+    version: 0.10.0
 
   bisect:
     github: spider-gazelle/bisect
@@ -18,7 +18,7 @@ shards:
 
   coverage:
     github: anykeyh/crystal-coverage
-    commit: a26f386780123beee890ad93b71fd9f9ecbe335a
+    commit: 865383b31c51130612a9f6900a9666bcbfe9a426
 
   cron_parser:
     github: kostya/cron_parser
@@ -42,5 +42,5 @@ shards:
 
   tokenizer:
     github: spider-gazelle/tokenizer
-    version: 1.0.1
+    version: 1.0.2
 

@@ -210,8 +210,8 @@ class EtcdClient
           events = response.try(&.result.try(&.events)) || [] of EtcdWatchEvent
           events = events.map do |event|
             event.kv = event.try(&.kv).try do |kv|
-              kv.key = kv.try(&.key).try { |k| Base64.decode_string k }
-              kv.value = kv.try(&.value).try { |v| Base64.decode_string v }
+              kv.key = kv.try(&.key).try(&->Base64.decode_string(String))
+              kv.value = kv.try(&.value).try(&->Base64.decode_string(String))
               kv
             end
             event
