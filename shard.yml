@@ -4,12 +4,19 @@ dependencies:
   action-controller:
     github: spider-gazelle/action-controller
     version: "~> 1.4"
+
   active-model:
     github: spider-gazelle/active-model
+
+  rendezvous-hash:
+    github: caspiano/rendezvous-hash
+
   tasker:
     github: spider-gazelle/tasker
+
   tokenizer:
     github: spider-gazelle/tokenizer
+
   kilt:
     github: jeromegn/kilt
 

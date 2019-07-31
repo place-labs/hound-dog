@@ -115,8 +115,8 @@ class EtcdController < Application
       socket.close # socket.closed not set automatically
     end
     head :ok
-  rescue error
-    logger.error "in register\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
+  rescue e
+    logger.error "in register: message=#{e.message} error=#{e.inspect_with_backtrace}"
   end
 
   # Subscribe to etcd events over keys
@@ -129,8 +129,8 @@ class EtcdController < Application
       remove_event_listener(socket, service_subscriptions)
     end
     head :ok
-  rescue error
-    logger.error "in monitor\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
+  rescue e
+    logger.error "in monitor: message=#{e.message} error=#{e.inspect_with_backtrace}"
   end
 
   # Method to defer renewal of lease with a dynamic TTL
@@ -198,8 +198,8 @@ class EtcdController < Application
         events.each { |event| block.call self.parse_event(event) }
       end
     end
-  rescue error
-    logger.error "in watch_namespace #{namespace}\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
+  rescue e
+    logger.error "in watch_namespace: namespace=#{namespace} message=#{e.message} error=#{e.inspect_with_backtrace}"
     sleep 1 # Delay retry to prevent hammering etcd
     watch_namespace namespace, **opts, &block
   end

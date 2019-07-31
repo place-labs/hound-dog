@@ -221,8 +221,8 @@ class EtcdClient
           block.call events unless response.created
         end
       end
-    rescue error
-      logger.error "in watch\n#{error.message}\n#{error.backtrace?.try &.join("\n")}"
+    rescue e
+      logger.error "in watch: message=#{e.message} error=#{e.inspect_with_backtrace}"
     end
   end
 
@@ -301,9 +301,9 @@ class EtcdClient
     end
 
     HTTP::Client.new(@host, @port) do |http|
-      logger.debug("Invoking: '#{method}' against '#{path}'")
+      logger.debug("making http request: method=#{method} path=#{path}")
       response = http.exec(method, path, body: body)
-      logger.debug("Response: #{response.status_code} #{response.body}")
+      logger.debug("received http response: status_code=#{response.status_code} response_body=#{response.body}")
       process_http_response(response)
     end
   end
@@ -317,8 +317,7 @@ class EtcdClient
     when 500
       raise "Etcd Error: #{response.body}"
     else
-      logger.debug("HTTP error")
-      logger.debug(response.body)
+      logger.debug("HTTP error in process_http_response: response=#{response.inspect}")
       raise "HTTP Error: #{response.body}"
     end
   end
