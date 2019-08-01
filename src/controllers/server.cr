@@ -1,4 +1,6 @@
 require "tasker"
+
+require "./application"
 require "../etcd_client"
 
 class EtcdController < Application
@@ -183,7 +185,7 @@ class EtcdController < Application
   end
 
   alias WatchEvent = NamedTuple(
-    event_type: String,
+    type: String,
     namespace: String,
     service: String | Nil,
     key: String,
@@ -214,11 +216,11 @@ class EtcdController < Application
     tokens = key.split('/')
 
     {
-      event_type: event_type,
-      namespace:  tokens[0],
-      service:    tokens[1]?,
-      key:        key,
-      value:      value,
+      type:      event_type,
+      namespace: tokens[0],
+      service:   tokens[1]?,
+      key:       key,
+      value:     value,
     }
   end
 
@@ -243,8 +245,8 @@ class EtcdController < Application
     message = {
       namespace: event[:namespace],
       body:      {
-        event_type: event[:event_type],
-        services:   self.service_nodes service,
+        type:     event[:type],
+        services: self.service_nodes service,
       },
     }.to_json
 

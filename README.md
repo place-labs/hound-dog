@@ -14,7 +14,7 @@ Developed against etcd-server `v3.3.13`, and `ETCD_API=3`
 
 ## API
 
-### WS ../etcd/register
+### WS /etcd/register
 
 Websocket endpoint to register service node in etcd until termination of socket connection.
 Events for the service under which the node is namespaced are pushed to the client.  
@@ -33,7 +33,7 @@ Optionally, the monitor field allows subscription to all events under requested 
 
 Websocket emits Message
 
-### WS ../etcd/monitor
+### WS /etcd/monitor
 
 Websocket endpoint to register for all events for desired service namespaces.
 
@@ -47,7 +47,7 @@ Websocket endpoint to register for all events for desired service namespaces.
 
 Websocket emits Message
 
-### POST ../etcd/event
+### POST /etcd/event
 
 Emit a custom event to some/all namespaces
 

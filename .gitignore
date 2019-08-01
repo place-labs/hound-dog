@@ -2,6 +2,7 @@ doc
 lib
 .crystal
 .shards
+shard.lock
 app
 *.dwarf
 bin

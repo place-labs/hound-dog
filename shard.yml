@@ -1,5 +1,6 @@
 name: hound-dog
 version: 1.0.0
+
 dependencies:
   action-controller:
     github: spider-gazelle/action-controller
@@ -25,8 +26,3 @@ development_dependencies:
     github: veelenga/ameba
   coverage:
     github: anykeyh/crystal-coverage
-
-# compile target
-targets:
-  app:
-    main: src/app.cr
