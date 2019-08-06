@@ -2,18 +2,18 @@ require "./helper"
 
 module HoundDog::Controller
   describe Etcd do
-    etcd_host = ENV["ACA_ETCD_HOST"]? || "127.0.0.1"
-    etcd_port = (ENV["ACA_ETCD_PORT"]? || 2379).to_u16
-    etcd_ttl = (ENV["ACA_ETCD_TTL"]? || 5).to_i64
-    client = HoundDog::Etcd.new(etcd_host, etcd_port, etcd_ttl)
+    etcd_host = env["aca_etcd_host"]? || "127.0.0.1"
+    etcd_port = (env["aca_etcd_port"]? || 2379).to_u16
+    etcd_ttl = (env["aca_etcd_ttl"]? || 5).to_i64
+    client = hounddog::etcd.new(etcd_host, etcd_port, etcd_ttl)
     with_server do
-      Spec.before_each do
+      spec.before_each do
         client.delete_prefix "service"
       end
 
       it "performs leader election" do
-        response = curl("GET", "/etcd/leader")
-        body = JSON.parse response.body
+        response = curl("get", "/etcd/leader")
+        body = json.parse response.body
         leader = body["leader"]
         member_id = body["member_id"]
 
@@ -33,8 +33,8 @@ module HoundDog::Controller
         client.put(key2, value2, lease: lease[:id])
         client.put(key3, value3, lease: lease[:id])
 
-        response = curl("GET", "/etcd/services")
-        body = JSON.parse(response.body)
+        response = curl("get", "/etcd/services")
+        body = json.parse(response.body)
         services = body["services"].as_a.map { |v| v.as_s }
 
         services_present = {"api", "engine"}.all? do |service|
@@ -53,8 +53,8 @@ module HoundDog::Controller
         client.put(key1, value1, lease: lease[:id])
         client.put(key2, value2, lease: lease[:id])
 
-        response = curl("GET", "/etcd/services/api")
-        services = Array(NamedTuple(ip: String, port: Int32)).from_json(response.body)
+        response = curl("get", "/etcd/services/api")
+        services = array(namedtuple(ip: string, port: int32)).from_json(response.body)
 
         expected = [
           {ip: "bath", port: 42},
@@ -68,13 +68,13 @@ module HoundDog::Controller
         ip = "127.0.0.1"
         port = 4242
         path = "/etcd/register?ip=#{ip}&port=#{port}&service=#{service}"
-        socket = HTTP::WebSocket.new("localhost", path, 6000)
+        socket = http::websocket.new("localhost", path, 6000)
         spawn { socket.run }
         sleep 1
 
         # check that service registered
-        response = curl("GET", "/etcd/services/#{service}")
-        body = JSON.parse(response.body)
+        response = curl("get", "/etcd/services/#{service}")
+        body = json.parse(response.body)
         services = body.as_a.map { |v| {ip: v["ip"].as_s, port: v["port"].as_i} }
         expected = [{ip: ip, port: port}]
 
@@ -87,9 +87,9 @@ module HoundDog::Controller
         service = "potato"
         path = "/etcd/monitor?monitor=#{service}"
 
-        channel = Channel(String).new
+        channel = channel(string).new
         spawn do
-          socket = HTTP::WebSocket.new("localhost", path, 6000)
+          socket = http::websocket.new("localhost", path, 6000)
           socket.on_message do |message|
             channel.send message
             socket.close
@@ -102,7 +102,7 @@ module HoundDog::Controller
         client.put("service/#{service}/#{ip}", "#{ip}:#{port}")
 
         # asynchronously receive event
-        message = JSON.parse(channel.receive)
+        message = json.parse(channel.receive)
         services = message["body"]["services"].as_a.map { |v| {ip: v["ip"].as_s, port: v["port"].as_i} }
 
         expected = [{ip: ip, port: port}]
@@ -113,9 +113,9 @@ module HoundDog::Controller
         service = "masala"
         path = "/etcd/monitor?monitor=#{service}"
 
-        channel = Channel(String).new
+        channel = channel(string).new
         spawn do
-          socket = HTTP::WebSocket.new("127.0.0.1", path, 6000)
+          socket = http::websocket.new("127.0.0.1", path, 6000)
           socket.on_message do |message|
             channel.send message
             socket.close
@@ -125,16 +125,16 @@ module HoundDog::Controller
 
         # define custom event
         event_type = "paddling"
-        event_body = "THWACK!"
+        event_body = "thwack!"
         message = {
           :event_type => event_type,
           :event_body => event_body,
           :services   => [service],
         }.to_json
-        curl("POST", "/etcd/event", body: message)
+        curl("post", "/etcd/event", body: message)
 
         message = channel.receive
-        result = JSON.parse(message)["body"]
+        result = json.parse(message)["body"]
 
         expected = {
           :event_type => event_type,

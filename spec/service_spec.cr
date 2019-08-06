@@ -64,12 +64,13 @@ module HoundDog
           registration.register(ttl: ttl) { |_| }
         end
 
-        sleep 1
+        # Wait for registration
+        sleep 0.5
 
         # Check that service registered
         Service.nodes(service).should contain node
 
-        registration.deregister
+        registration.unregister
 
         registration.registered?.should be_false
 
@@ -122,7 +123,7 @@ module HoundDog
         Service.nodes(service).should contain node0
         Service.nodes(service).should contain node1
 
-        registration1.deregister
+        registration1.unregister
         registration1.registered?.should be_false
 
         sleep ttl
@@ -133,7 +134,7 @@ module HoundDog
         # Check callbacks are received
         channel.receive[:type].should eq Etcd::WatchEvent::Type::DELETE
 
-        registration0.deregister
+        registration0.unregister
         registration0.registered?.should be_false
 
         sleep ttl

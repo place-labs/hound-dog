@@ -21,12 +21,23 @@ module HoundDog
       port: HoundDog.settings.etcd_port,
     )
 
+    # Flag for lease renewal
+    @registered = false
+
+    # so if a connection to etcd fails, retry, keep maintaining lease.
+    # - retriable for etcd client.
+
     def initialize(@service : String, @node : Node, @logger : Logger = HoundDog.settings.logger)
     end
 
     def registered?
-      !!(@deregister_callback)
+      !!(@unregister_callback)
     end
+
+    # SO! we need
+    # - register
+    #   + stop renewing after registered variable set
+    # - monitor
 
     # Registers a node under a service namespace, passing events under namespace to the callback
     # TODO
@@ -35,14 +46,14 @@ module HoundDog
     #     + monitor as normal
     #
     # Returns
-    # - Callback to deregister
+    # - Callback to unregister
     # Effects
     # - Spawns a fiber to maintain the lease, TODO: stop fiber on conn close
     # - Sets node key under service namespace
     def register(ttl : Int64 = HoundDog.settings.etcd_ttl, &callback : Event ->) : Proc(Void)
       # Check if node is still registered
-      deregister_callback = @deregister_callback
-      return deregister_callback if deregister_callback
+      unregister_callback = @unregister_callback
+      return unregister_callback if unregister_callback
 
       # Secure and maintain lease from etcd
       lease = @@etcd.lease_grant ttl
@@ -57,20 +68,20 @@ module HoundDog
       raise "Failed to watch #{@service} namespace" unless channel
 
       # Types don't normalise from above check, have to cast.
-      spawn keep_alive(lease[:id], lease[:ttl], channel.as(Channel(Nil)))
+      keep_alive(lease[:id], lease[:ttl], channel.as(Channel(Nil)))
 
-      @deregister_callback = ->{ channel.as(Channel(Nil)).close unless channel.as(Channel(Nil)).closed? }
+      @unregister_callback = ->{ channel.as(Channel(Nil)).close unless channel.as(Channel(Nil)).closed? }
     end
 
     # Set once service node has been registered
-    @deregister_callback : Proc(Void)?
+    @unregister_callback : Proc(Void)?
 
-    # Deregister current services
+    # unregister current services
     #
-    def deregister
-      if (deregister_callback = @deregister_callback)
-        deregister_callback.call
-        @deregister_callback = nil
+    def unregister
+      if (unregister_callback = @unregister_callback)
+        unregister_callback.call
+        @unregister_callback = nil
       end
     end
 
@@ -145,11 +156,13 @@ module HoundDog
     protected def keep_alive(id : Int64, ttl : Int64, channel : Channel(Nil))
       retry_interval = ttl // 2
       Tasker.instance.in(retry_interval.seconds) do
-        begin
-          renewed_ttl = @@etcd.lease_keep_alive id
-          spawn self.keep_alive(id, renewed_ttl, channel) unless channel.closed?
-        rescue e
-          @logger.error("in keep_alive: error=#{e.inspect_with_backtrace}")
+        unless channel.closed?
+          begin
+            renewed_ttl = @@etcd.lease_keep_alive id
+            spawn self.keep_alive(id, renewed_ttl, channel)
+          rescue e
+            @logger.error("in keep_alive: error=#{e.inspect_with_backtrace}")
+          end
         end
       end
     end
