@@ -1,4 +1,3 @@
-require "habitat"
 require "http"
 require "json"
 require "rendezvous-hash"
@@ -35,18 +34,6 @@ module HoundDog
       spawn watchfeed.start
     end
 
-    # Register service
-    #
-    def register
-      @service_events.register
-    end
-
-    # Remove self from namespace
-    #
-    def unregister
-      @service_events.unregister
-    end
-
     # Consistent hash lookup
     #
     def find(key : String) : Service::Node
@@ -58,6 +45,18 @@ module HoundDog
     #
     def nodes : Array(Service::Node)
       @rendezvous.nodes.map &->Service.node(String)
+    end
+
+    # Register service
+    #
+    def register
+      @service_events.register
+    end
+
+    # Remove service from namespace
+    #
+    def unregister
+      @service_events.unregister
     end
 
     # Event handler
