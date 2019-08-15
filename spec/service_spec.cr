@@ -60,9 +60,7 @@ module HoundDog
 
         registration = Service.new(service: service, node: node)
 
-        spawn do
-          registration.register(ttl: ttl) { |_| }
-        end
+        spawn { registration.register(ttl: ttl) }
 
         # Wait for registration
         sleep 0.5
@@ -72,7 +70,7 @@ module HoundDog
 
         registration.unregister
 
-        registration.registered?.should be_false
+        registration.registered.should be_false
 
         sleep ttl
 
@@ -97,21 +95,24 @@ module HoundDog
           port: port,
         }
 
-        registration0 = Service.new(service: service, node: node0)
-        registration1 = Service.new(service: service, node: node1)
+        subscription0 = Service.new(service: service, node: node0)
+        subscription1 = Service.new(service: service, node: node1)
 
         channel = Channel(Service::Event).new
 
-        spawn do
-          registration0.register(ttl: ttl) do |event|
-            channel.send(event)
-          end
+        # Create a watchfeed for service
+        watchfeed0 = subscription0.monitor do |event|
+          channel.send(event)
         end
+
+        # Start monitoring the namespace
+        spawn { watchfeed0.start }
 
         sleep 1
 
+        # Register another node
         spawn do
-          registration1.register(ttl: ttl) { }
+          subscription1.register(ttl: ttl)
         end
 
         sleep 1
@@ -119,12 +120,11 @@ module HoundDog
         # Check callbacks are received
         channel.receive[:type].should eq Etcd::WatchEvent::Type::PUT
 
-        # Check that service registered
-        Service.nodes(service).should contain node0
+        # Check that only node1 service registered
         Service.nodes(service).should contain node1
 
-        registration1.unregister
-        registration1.registered?.should be_false
+        subscription1.unregister
+        subscription1.registered.should be_false
 
         sleep ttl
 
@@ -134,8 +134,8 @@ module HoundDog
         # Check callbacks are received
         channel.receive[:type].should eq Etcd::WatchEvent::Type::DELETE
 
-        registration0.unregister
-        registration0.registered?.should be_false
+        subscription0.unregister
+        subscription0.registered.should be_false
 
         sleep ttl
 

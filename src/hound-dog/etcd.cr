@@ -2,7 +2,6 @@ require "active-model"
 require "base64"
 require "http"
 require "json"
-require "logger"
 require "tokenizer"
 
 require "./settings"
@@ -13,19 +12,16 @@ module HoundDog
     VERSION_PREFIX = "/v3beta"
 
     getter host, port
-    property logger
 
     # Creates a new Etcd HTTP client
     #
     # host   IP address of the etcd server (default 127.0.0.1)
     # port   Port number of the etcd server (default 4001)
     # ttl    TTL of leases (default 60)
-    # logger (default logger instance)
     def initialize(
       @host : String = HoundDog.settings.etcd_host,
       @port : UInt16 = HoundDog.settings.etcd_port,
-      @ttl : Int64 = HoundDog.settings.etcd_ttl,
-      @logger : Logger = HoundDog.settings.logger
+      @ttl : Int64 = HoundDog.settings.etcd_ttl
     )
     end
 
@@ -137,12 +133,10 @@ module HoundDog
         :range_end => Base64.strict_encode(range_end),
       }
       response = api_execute("POST", "/kv/deleterange", post_body)
-      if response.success?
-        body = JSON.parse(response.body)
-        body["deleted"]?.try(&.to_s.to_i64) || 0
-      else
-        nil
-      end
+
+      raise "Etcd Error: #{response.body}" unless response.success?
+
+      JSON.parse(response.body)["deleted"]?.try(&.to_s.to_i64) || 0
     end
 
     # Deletes an entire keyspace prefix
@@ -156,34 +150,42 @@ module HoundDog
     end
 
     # Queries a range of keys
-    def range(key, range_end = "")
+    def range(key, range_end : String? = nil)
+      encoded_key = Base64.strict_encode(key)
+      encoded_range_end = range_end.try &->Base64.strict_encode(String)
+
       parameters = {
-        :key       => Base64.strict_encode(key),
-        :range_end => Base64.strict_encode(range_end),
-      }
+        :key       => encoded_key,
+        :range_end => encoded_range_end,
+      }.compact
+
       response = api_execute("POST", "/kv/range", parameters)
-      body = JSON.parse(response.body)
-      kvs = body["kvs"]?.try(&.as_a) || [] of JSON::Any
-      kvs.map do |h|
-        {
-          key:             Base64.decode_string(h["key"].as_s),
-          value:           Base64.decode_string(h["value"].as_s),
-          create_revision: Base64.decode_string(h["create_revision"].as_s),
-        }
-      end
+      RangeResponse.from_json(response.body).kvs || [] of KV
     end
 
-    # Method to query keys by prefix
+    # Query keys beneath a prefix
     def range_prefix(prefix)
       range(prefix, prefix_range_end prefix)
     end
 
-    # Watches an etcd key/range, passing events to a supplied block.
+    # Watches keys by prefix, passing events to a supplied block.
+    # Exposes a synchronous interface to the watchfeed via `Etcd::WatchFeed`
     #
-    # Returns Channel(Nil)?
-    # Watch feed stops when returned Channel is closed.
+    # opts
+    #  filters         filters filter the events at server side before it sends back to the watcher.                                           [WatchFilter]
+    #  start_revision  start_revision is an optional revision to watch from (inclusive). No start_revision is "now".                           Int64
+    #  progress_notify progress_notify is set so that the etcd server will periodically send a WatchResponse with no events to the new watcher
+    #                  if there are no recent events. It is useful when clients wish to recover a disconnected watcher starting from
+    #                  a recent known revision. The etcd server may decide how often it will send notifications based on current load.         Bool
+    #  prev_kv         If prev_kv is set, created watcher gets the previous KV before the event happens.                                       Bool
+    def watch_prefix(prefix, **opts, &block : Array(WatchEvent) -> Void)
+      opts = opts.merge({range_end: prefix_range_end prefix})
+      watch(prefix, **opts, &block)
+    end
+
+    # Watch a key in ETCD, returns a watchfeed
+    # Exposes a synchronous interface to the watchfeed via `Etcd::WatchFeed`
     #
-    # key              key is the key to register for watching.                                                                                String
     # opts
     #  range_end       range_end is the end of the range [key, range_end) to watch.
     #  filters         filters filter the events at server side before it sends back to the watcher.                                           [WatchFilter]
@@ -192,7 +194,7 @@ module HoundDog
     #                  if there are no recent events. It is useful when clients wish to recover a disconnected watcher starting from
     #                  a recent known revision. The etcd server may decide how often it will send notifications based on current load.         Bool
     #  prev_kv         If prev_kv is set, created watcher gets the previous KV before the event happens.                                       Bool
-    def watch(key, **opts, &block : Array(WatchEvent) -> Void) : Channel(Nil)?
+    def watch(key, **opts, &block : Array(WatchEvent) -> Void) : WatchFeed
       opts = {
         key: key,
       }.merge(opts)
@@ -208,86 +210,236 @@ module HoundDog
         options[k] = Base64.strict_encode(option) if option && option.is_a?(String)
       end
 
-      coord_channel = Channel(Nil).new
+      Etcd::WatchFeed.new(key: key, host: host, port: port, options: options, &block)
+    end
 
-      post_body = {:create_request => options}
-      begin
-        HTTP::Client.post("#{host}:#{port}#{VERSION_PREFIX}/watch", body: post_body.to_json) do |stream|
+    # Wrapper for a watch session with ETCD.
+    #
+    # ```
+    # client = Etcd::Client.new
+    # watchfeed = client.watch(key: "hello") do |e|
+    #   puts e
+    # end
+    #
+    # spawn do
+    #   watchfeed.start
+    # end
+    # ```
+    class WatchFeed
+      @client : HTTP::Client?
+
+      def initialize(
+        @key : String,
+        @host : String = HoundDog.settings.etcd_host,
+        @port : UInt16 = HoundDog.settings.etcd_port,
+        @options = {} of Symbol => String | Int64 | Bool | Array(WatchFilter),
+        &block : Array(WatchEvent) -> Void
+      )
+        @block = block
+      end
+
+      # Start the watchfeed
+      def start
+        raise "Already watching #{@key}" if @client
+
+        @client = client = HTTP::Client.new(host: @host, port: @port)
+
+        post_body = {:create_request => @options}
+        client.post("#{VERSION_PREFIX}/watch", body: post_body.to_json) do |stream|
           consume_io(stream.body_io, json_chunk_tokenizer) do |chunk|
-            if coord_channel.closed?
-              # HACK: drain IO to end watcher
-              stream.body_io.skip_to_end
-              next
+            begin
+              response = WatchResponse.from_json(chunk)
+              raise IO::EOFError.new if response.error
+
+              # Pick off events
+              events = response.try(&.result.try(&.events)) || [] of WatchEvent
+
+              # Ignore "created" message
+              @block.call events unless response.created
+            rescue e
+              HoundDog.settings.logger.error "in watchfeed: message=#{e.message} chunk=#{chunk} error=#{e.inspect_with_backtrace}"
             end
-
-            response = WatchResponse.from_json(chunk)
-            raise IO::EOFError.new if response.error
-
-            # Unmarshall Base64 encoded key and value
-            events = response.try(&.result.try(&.events)) || [] of WatchEvent
-            events = events.map do |event|
-              event.kv = event.try(&.kv).try do |kv|
-                kv.key = kv.try(&.key).try(&->Base64.decode_string(String))
-                kv.value = kv.try(&.value).try(&->Base64.decode_string(String))
-                kv
-              end
-              event
-            end
-
-            # Ignore "created" message
-            block.call events unless response.created
           end
-
-          coord_channel.close unless coord_channel.closed?
         end
+      end
 
-        # Returns a channel by which to close the watch stream
-        coord_channel
-      rescue e
-        logger.error "in watch: message=#{e.message} error=#{e.inspect_with_backtrace}"
-        nil
+      # Close the client and stop the watchfeed
+      def stop
+        @client.try &.close
+      end
+
+      # Partitions IO into JSON chunks (only objects!)
+      protected def json_chunk_tokenizer
+        Tokenizer.new do |io|
+          length, unpaired = 0, 0
+          loop do
+            char = io.read_char
+            break unless char
+            unpaired += 1 if char == '{'
+            unpaired -= 1 if char == '}'
+            length += 1
+            break if unpaired == 0
+          end
+          unpaired == 0 && length > 0 ? length : -1
+        end
+      end
+
+      # Pulls tokens off stream IO, and calls block with tokenized IO
+      # io          Streaming IO                                      IO
+      # tokenizer   Tokenizer class with which the stream is parsed   Tokenizer
+      # block       Block that takes a string                         Block
+      protected def consume_io(io, tokenizer, &block : String -> Void)
+        raw_data = Bytes.new(4096)
+        while !io.closed?
+          bytes_read = io.read(raw_data)
+          break if bytes_read == 0 # IO was closed
+          tokenizer.extract(raw_data[0, bytes_read]).each do |message|
+            spawn { block.call String.new(message) }
+          end
+        end
       end
     end
 
-    # Watches keys by prefix
-    def watch_prefix(prefix, **opts, &block : Array(WatchEvent) -> Void)
-      opts = opts.merge({range_end: prefix_range_end prefix})
-      watch(prefix, **opts, &block)
+    # Models of Etcd Data.
+    # Refer to documentation https://coreos.com/etcd/docs/latest/dev-guide/api_reference_v3.html
+    ############################################################################################
+
+    class Data < ActiveModel::Model
     end
 
-    # Partitions IO into JSON chunks (only objects!)
-    def json_chunk_tokenizer
-      Tokenizer.new do |io|
-        length, unpaired = 0, 0
-        loop do
-          char = io.read_char
-          break unless char
-          unpaired += 1 if char == '{'
-          unpaired -= 1 if char == '}'
-          length += 1
-          break if unpaired == 0
-        end
-        unpaired == 0 && length > 0 ? length : -1
+    # Types for watch event filters
+    enum WatchFilter
+      NOPUT    # filter put events
+      NODELETE # filter delete events
+    end
+
+    class KV < Data
+      attribute key : String, converter: Base64Converter
+      attribute value : String, converter: Base64Converter
+      attribute create_revision : UInt64, converter: StringTypeConverter(UInt64)
+      attribute mod_revision : UInt64, converter: StringTypeConverter(UInt64)
+      attribute version : Int64, converter: StringTypeConverter(Int64)
+      attribute lease : Int64, converter: StringTypeConverter(Int64)
+    end
+
+    class Header < Data
+      attribute cluster_id : UInt64, converter: StringTypeConverter(UInt64)
+      attribute member_id : UInt64, converter: StringTypeConverter(UInt64)
+      attribute revision : Int64, converter: StringTypeConverter(Int64)
+      attribute raft_term : UInt64, converter: StringTypeConverter(UInt64)
+    end
+
+    class RangeResponse < Data
+      attribute header : Header
+      attribute kvs : Array(KV)
+      attribute count : String
+    end
+
+    class WatchResponse < Data
+      attribute result : WatchResult
+      attribute error : WatchError
+      attribute created : Bool = false
+    end
+
+    class WatchError < Data
+      attribute http_code : Int32, converter: StringTypeConverter(Int32)
+    end
+
+    class WatchResult < Data
+      attribute events : Array(WatchEvent) = [] of WatchEvent
+    end
+
+    class WatchEvent < Data
+      enum Type
+        PUT
+        DELETE
+      end
+
+      # Empty type field indicates PUT event
+      enum_attribute type : Type = Type::PUT, column_type: String
+      attribute kv : KV
+    end
+
+    class Status < Data
+      attribute header : Header
+      attribute version : String
+      attribute dbSize : Int64, converter: StringTypeConverter(Int64) # ameba:disable Style/VariableNames
+      attribute leader : UInt64, converter: StringTypeConverter(UInt64)
+      attribute raftIndex : UInt64, converter: StringTypeConverter(UInt64) # ameba:disable Style/VariableNames
+      attribute raftTerm : UInt64, converter: StringTypeConverter(UInt64)  # ameba:disable Style/VariableNames
+    end
+
+    # Converter for Base64 encoded values
+    module Base64Converter
+      def self.from_json(json : JSON::PullParser) : String
+        string = Base64.decode_string(json.read_string)
+        string
+      end
+
+      def self.to_json(value : String, json : JSON::Builder)
+        json.string(Base64.strict_encode(value))
       end
     end
 
-    # Pulls tokens off stream IO, and calls block with tokenized IO
-    # io          Streaming IO                                      IO
-    # tokenizer   Tokenizer class with which the stream is parsed   Tokenizer
-    # block       Block that takes a string                         Block
-    def consume_io(io, tokenizer, &block : String -> Void)
-      raw_data = Bytes.new(4096)
-      while !io.closed?
-        bytes_read = io.read(raw_data)
-        break if bytes_read == 0 # IO was closed
-        tokenizer.extract(raw_data[0, bytes_read]).each do |message|
-          spawn { block.call String.new(message) }
-        end
+    # Converter for stringly typed values, such as etcd response values
+    module StringTypeConverter(T)
+      def self.from_json(json : JSON::PullParser) : T
+        T.new(json.read_string)
+      end
+
+      def self.to_json(value : T, json : JSON::Builder)
+        json.string(value.to_s)
+      end
+    end
+
+    # Utils
+    ###########################################################################
+
+    # Sends HTTP api requests to etcd server.
+    # method  the request method used                                   String
+    # path    etcd server path (etcd server end point)                  String
+    # body    additional parameters used by request method (optional)   Nil | Hash
+    private def api_execute(method, path, body : Nil | Hash = nil)
+      raise "Unknown HTTP action: #{method}" unless {"GET", "POST", "PUT", "DELETE"}.includes?(method)
+      url = VERSION_PREFIX + path
+
+      # Etcd expects stringly typed fields in request (artifact of gRPC http gateway)
+      body = to_stringly body unless body.nil?
+      make_http_request(method, url, body)
+    end
+
+    private def make_http_request(method, path, body = nil)
+      body = body.to_json unless body.nil?
+
+      # Client expects JSON POST body
+      if method == "POST" && body.nil?
+        body = "{}"
+      end
+
+      HTTP::Client.new(@host, @port) do |http|
+        HoundDog.settings.logger.debug("making http request: method=#{method} path=#{path}")
+        response = http.exec(method, path, body: body)
+        HoundDog.settings.logger.debug("received http response: status_code=#{response.status_code} response_body=#{response.body}")
+        process_http_response(response)
+      end
+    end
+
+    private def process_http_response(response)
+      # In the case of redirection, original request required.
+      case response.status_code
+      when 200
+        HoundDog.settings.logger.debug("HTTP success")
+        response
+      when 500
+        raise "Etcd Error: #{response.body}"
+      else
+        HoundDog.settings.logger.debug("HTTP error in process_http_response: response=#{response.inspect}")
+        raise "HTTP Error: #{response.body}"
       end
     end
 
     # Converts literals to string type
-    def to_stringly(value)
+    protected def to_stringly(value)
       case value
       when Array, Tuple
         value.map { |v| to_stringly v }
@@ -299,125 +451,6 @@ module HoundDog
         value
       else
         value.to_s
-      end
-    end
-
-    # Sends HTTP api requests to etcd server.
-    # method  the request method used                                   String
-    # path    etcd server path (etcd server end point)                  String
-    # body    additional parameters used by request method (optional)   Nil | Hash
-    def api_execute(method, path, body : Nil | Hash = nil)
-      raise "Unknown HTTP action: #{method}" unless {"GET", "POST", "PUT", "DELETE"}.includes?(method)
-      url = VERSION_PREFIX + path
-
-      # Etcd expects stringly typed fields in request (artifact of gRPC http gateway)
-      body = to_stringly body unless body.nil?
-      make_http_request(method, url, body)
-    end
-
-    def make_http_request(method, path, body = nil)
-      body = body.to_json unless body.nil?
-
-      # Client expects JSON POST body
-      if method == "POST" && body.nil?
-        body = "{}"
-      end
-
-      HTTP::Client.new(@host, @port) do |http|
-        logger.debug("making http request: method=#{method} path=#{path}")
-        response = http.exec(method, path, body: body)
-        logger.debug("received http response: status_code=#{response.status_code} response_body=#{response.body}")
-        process_http_response(response)
-      end
-    end
-
-    def process_http_response(response)
-      # In the case of redirection, original request required.
-      case response.status_code
-      when 200
-        logger.debug("HTTP success")
-        response
-      when 500
-        raise "Etcd Error: #{response.body}"
-      else
-        logger.debug("HTTP error in process_http_response: response=#{response.inspect}")
-        raise "HTTP Error: #{response.body}"
-      end
-    end
-
-    # Converter for stringly typed values, such as etcd response values
-    module StringTypedJSONConverter(T)
-      def self.from_json(value : JSON::PullParser) : T
-        T.new(value.read_string)
-      end
-    end
-
-    # Models of Etcd Data.
-    # Refer to documentation https://coreos.com/etcd/docs/latest/dev-guide/api_reference_v3.html
-    ############################################################################################
-
-    # Types for watch event filters
-    enum WatchFilter
-      NOPUT    # filter put events
-      NODELETE # filter delete events
-    end
-
-    class WatchResponse < ActiveModel::Model
-      attribute result : WatchResult
-      attribute error : WatchError
-      attribute created : Bool = false
-    end
-
-    class WatchError < ActiveModel::Model
-      attribute http_code : Int32, converter: StringTypedJSONConverter(Int32)
-    end
-
-    class WatchResult < ActiveModel::Model
-      attribute events : Array(WatchEvent) = [] of WatchEvent
-    end
-
-    class WatchKV < ActiveModel::Model
-      include ActiveModel::Validation
-      attribute key : String
-      attribute value : String
-      validates :key, if: Proc.new(WatchKV) do |kv|
-        key = kv["key"]?
-        key != nil
-      end
-    end
-
-    class WatchEvent < ActiveModel::Model
-      include ActiveModel::Validation
-
-      enum Type
-        PUT
-        DELETE
-      end
-
-      # Empty type field indicates PUT event
-      enum_attribute type : Type = Type::PUT, column_type: String
-
-      attribute kv : WatchKV
-      validates :kv, presence: true
-      validates :kv, if: Proc.new(WatchEvent) do |event|
-        kv = event["kv"]?
-        kv != nil
-      end
-    end
-
-    class Status < ActiveModel::Model
-      attribute header : ResponseHeader
-      attribute version : String
-      attribute dbSize : Int64, converter: StringTypedJSONConverter(Int64) # ameba:disable Style/VariableNames
-      attribute leader : UInt64, converter: StringTypedJSONConverter(UInt64)
-      attribute raftIndex : UInt64, converter: StringTypedJSONConverter(UInt64) # ameba:disable Style/VariableNames
-      attribute raftTerm : UInt64, converter: StringTypedJSONConverter(UInt64)  # ameba:disable Style/VariableNames
-
-      class ResponseHeader < ActiveModel::Model
-        attribute cluster_id : UInt64, converter: StringTypedJSONConverter(UInt64)
-        attribute member_id : UInt64, converter: StringTypedJSONConverter(UInt64)
-        attribute revision : Int64, converter: StringTypedJSONConverter(Int64)
-        attribute raft_term : UInt64, converter: StringTypedJSONConverter(UInt64)
       end
     end
   end

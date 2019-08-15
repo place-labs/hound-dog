@@ -83,7 +83,7 @@ module HoundDog
         client.put(key, value)
         range = client.range(key)
 
-        present = range.any? { |r| r[:key] == key && r[:value] == value }
+        present = range.any? { |r| r.key == key && r.value == value }
         present.should be_true
       end
 
@@ -96,7 +96,7 @@ module HoundDog
         client.put(key1, value1, lease: lease[:id])
         range = client.range_prefix key0
 
-        present = range.any? { |r| r[:key] == key1 && r[:value] == value1 }
+        present = range.any? { |r| r.key == key1 && r.value == value1 }
         present.should be_true
       end
     end

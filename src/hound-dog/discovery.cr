@@ -1,44 +1,50 @@
 require "habitat"
 require "http"
 require "json"
-require "logger"
 require "rendezvous-hash"
 
-require "./service"
 require "./etcd"
+require "./service"
+require "./settings"
 
 # Transparently manage service discovery through consistent hashing and ETCD
 #
 module HoundDog
   class Discovery
     getter service, ip, port
-    getter service_registration
 
-    @registration : Service?
-
-    # TODO:
-    # - remove coupling between registration and monitoring
-    # - graceful retry for both registration and monitoring
-
-    def initialize(@service : String, @ip : String, @port : UInt16)
+    def initialize(
+      @service : String,
+      @ip : String = "127.0.0.1",
+      @port : UInt16 = 8080
+    )
       # Get service nodes
       nodes = Service.nodes(@service).map { |n| Service.key_value(n) }
+      @service_events = Service.new(
+        service: @service,
+        node: {ip: @ip, port: @port},
+      )
 
+      # Initialiase the hash
       @rendezvous = RendezvousHash.new(nodes: nodes)
+
+      # Prepare watchfeed
+      watchfeed = @service_events.monitor(&->handle_service_message(Service::Event))
+
+      # ASYNC! spawn service monitoring
+      spawn watchfeed.start
     end
 
-    # Register and monitor changes to namespace
+    # Register service
     #
     def register
-      # Register service
-      @registration = registration = Service.new(service: @service, node: {ip: @ip, port: @port})
-      registration.register(&->handle_service_message(Service::Event))
-      @rendezvous.add({ip: @ip, port: @port})
+      @service_events.register
     end
 
-    # Remove self from namespace, stop monitoring.
+    # Remove self from namespace
+    #
     def unregister
-      @registration.try &.unregister
+      @service_events.unregister
     end
 
     # Consistent hash lookup
@@ -54,9 +60,8 @@ module HoundDog
       @rendezvous.nodes.map &->Service.node(String)
     end
 
-    # HoundDog Event Handler
-    #############################################################################
-
+    # Event handler
+    #
     def handle_service_message(event : Service::Event)
       key = event[:key]
       value = event[:value]
@@ -73,9 +78,8 @@ module HoundDog
     end
 
     def finalize
-      if (registration = @registration) && registration.registered?
-        registration.unregister
-      end
+      @service_events.unmonitor
+      unregister
     end
   end
 end

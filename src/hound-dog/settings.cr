@@ -1,4 +1,5 @@
 require "habitat"
+require "logger"
 
 module HoundDog
   Habitat.create do

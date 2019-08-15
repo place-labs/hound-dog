@@ -3,6 +3,10 @@ require "tasker"
 require "./etcd"
 require "./settings"
 
+# - watch namespace
+# - register self
+# - add nodes from etcd
+
 module HoundDog
   class Service
     # Namespace under which all services are registered in etcd
@@ -21,68 +25,54 @@ module HoundDog
       port: HoundDog.settings.etcd_port,
     )
 
+    # Wrapper for Etcd event subscription
+    @watchfeed : Etcd::WatchFeed?
+
     # Flag for lease renewal
-    @registered = false
+    getter registered = false
 
-    # so if a connection to etcd fails, retry, keep maintaining lease.
-    # - retriable for etcd client.
-
-    def initialize(@service : String, @node : Node, @logger : Logger = HoundDog.settings.logger)
+    def initialize(@service : String, @node : Node)
     end
 
-    def registered?
-      !!(@unregister_callback)
+    def node_key
+      "#{@@namespace}/#{@service}/#{@node[:ip]}"
     end
-
-    # SO! we need
-    # - register
-    #   + stop renewing after registered variable set
-    # - monitor
 
     # Registers a node under a service namespace, passing events under namespace to the callback
-    # TODO
-    #   - Check if key already present, with same value
-    #     + grab lease, start renewing lease
-    #     + monitor as normal
-    #
-    # Returns
-    # - Callback to unregister
+    # Check for a existing key-value, and renews its lease if present
     # Effects
-    # - Spawns a fiber to maintain the lease, TODO: stop fiber on conn close
     # - Sets node key under service namespace
-    def register(ttl : Int64 = HoundDog.settings.etcd_ttl, &callback : Event ->) : Proc(Void)
-      # Check if node is still registered
-      unregister_callback = @unregister_callback
-      return unregister_callback if unregister_callback
+    # - Spawns a fiber to maintain the lease
+    def register(ttl : Int64 = HoundDog.settings.etcd_ttl)
+      return if @registered
+
+      key = node_key
+      value = Service.key_value(@node)
+
+      # Check for key-value existence
+      if (kv = @@etcd.range(key).first?)
+        if kv.key == key && kv.value == value && kv.lease
+          # Renew lease if key-value and lease present
+          return keep_alive(kv.lease.as(Int64), ttl)
+        end
+      end
 
       # Secure and maintain lease from etcd
       lease = @@etcd.lease_grant ttl
 
       # Register service under namespace
-      key = {@@namespace, @service, @node[:ip]}.join("/")
-      value = Service.key_value(@node)
-      key_set = @@etcd.put(key, value, lease: lease[:id])
-      raise "Failed to register #{@node} under #{@service}" unless key_set
-
-      channel = Service.watch_service(@service, &callback)
-      raise "Failed to watch #{@service} namespace" unless channel
+      @registered = @@etcd.put(key, value, lease: lease[:id]).as(Bool)
+      raise "Failed to register #{@node} under #{@service}" unless @registered
 
       # Types don't normalise from above check, have to cast.
-      keep_alive(lease[:id], lease[:ttl], channel.as(Channel(Nil)))
-
-      @unregister_callback = ->{ channel.as(Channel(Nil)).close unless channel.as(Channel(Nil)).closed? }
+      keep_alive(lease[:id], lease[:ttl])
     end
-
-    # Set once service node has been registered
-    @unregister_callback : Proc(Void)?
 
     # unregister current services
     #
     def unregister
-      if (unregister_callback = @unregister_callback)
-        unregister_callback.call
-        @unregister_callback = nil
-      end
+      @registered = @@etcd.delete(node_key) == 0 if @registered
+      !@registered
     end
 
     # List nodes under a service namespace
@@ -91,7 +81,7 @@ module HoundDog
       namespace = "#{@@namespace}/#{service}/"
       range = @@etcd.range_prefix namespace
       range.map do |n|
-        self.node(n[:value])
+        self.node(n.value.as(String))
       end
     end
 
@@ -99,7 +89,7 @@ module HoundDog
     #
     def self.services
       @@etcd.range_prefix(@@namespace).compact_map do |r|
-        r[:key].split('/')[1]?
+        r.key.as(String).split('/')[1]?
       end.uniq
     end
 
@@ -118,6 +108,14 @@ module HoundDog
       }
     end
 
+    def monitor(&callback : Event ->)
+      @watchfeed = Service.watch(@service, &callback)
+    end
+
+    def unmonitor
+      @watchfeed.try &.stop
+    end
+
     # Watching
     ########################################################################
 
@@ -129,7 +127,8 @@ module HoundDog
       service: String?,
     )
 
-    def self.watch_service(service, &block : Event ->)
+    # Asynchronous interface
+    def self.watch(service, &block : Event ->)
       prefix = "#{@@namespace}/#{service}"
       @@etcd.watch_prefix(prefix) do |events|
         events.each { |event| block.call self.parse_event(event) }
@@ -137,7 +136,7 @@ module HoundDog
     end
 
     def self.parse_event(event : Etcd::WatchEvent) : Event
-      kv = event.kv.as(Etcd::WatchKV)
+      kv = event.kv.as(Etcd::KV)
       event_type = event.type.as(Etcd::WatchEvent::Type)
       key = kv.key.as(String)
       tokens = key.split('/')
@@ -153,15 +152,15 @@ module HoundDog
 
     # Method to defer renewal of lease with a dynamic TTL
     #
-    protected def keep_alive(id : Int64, ttl : Int64, channel : Channel(Nil))
+    protected def keep_alive(id : Int64, ttl : Int64)
       retry_interval = ttl // 2
       Tasker.instance.in(retry_interval.seconds) do
-        unless channel.closed?
+        if @registered
           begin
             renewed_ttl = @@etcd.lease_keep_alive id
-            spawn self.keep_alive(id, renewed_ttl, channel)
+            spawn self.keep_alive(id, renewed_ttl)
           rescue e
-            @logger.error("in keep_alive: error=#{e.inspect_with_backtrace}")
+            HoundDog.settings.logger.error("in keep_alive: error=#{e.inspect_with_backtrace}")
           end
         end
       end
