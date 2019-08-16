@@ -3,15 +3,22 @@
 [![Build Status](https://travis-ci.org/aca-labs/hound-dog.svg?branch=master)](https://travis-ci.org/aca-labs/hound-dog)
 
 Library for self-registration and service discovery that utilises Etcd for distributed key-value storage.
-
 Wraps service data in etcd within a [rendezvous hash](https://github.com/caspiano/rendezvous-hash)
 
 ## Usage
 
 ```crystal
+require "hound-dog"
+
+HoundDog.configure do |settings|
+  settings.service_namespace = "service"  # namespace for services
+  settings.etcd_host = "127.0.0.1"        # etcd connection config
+  settings.etcd_port = 2379
+  settings.etcd_ttl  = 30                 # TTL for leases
+end
 
 # Create a new Discovery instance
-discovery = Discovery.new(
+discovery = HoundDog::Discovery.new(
   service: "api",
   ip: "127.0.0.1",
   port: 1996,
@@ -26,24 +33,22 @@ spawn discovery.register
 
 # Rendezvous hash transparently updated
 discovery.nodes          #=> [{ip: "some ip", port: 8080}, {ip: "127.0.0.1", port: 1996}]
-
 ```
 
 ## etcd
 
 ### Namespacing
 
-All services are registered beneath the `service` namespace e.g. `service/engine/192.168.10.3`
-
-Keys are in the form `"#{ip}:#{port}"` then base64 encoded
+All services are registered beneath configured service namespace, i.e. a node under namespace `service` will be keyed as `service/#{service_name}/#{service_ip}`.
+Values are base64 encoded strings in the form `"#{ip}:#{port}"`.
 
 ### Version
 
-Developed against etcd-server `v3.3.13`, and `ETCD_API=3`
+Developed against `ETCD_API=3` and etcd-server `v3.3.13`, using etcd's JSON-gRPC API gateway.
 
 ## Testing
 
-`crystal spec`
+`$ crystal spec`
 
 ## Contributing
 
