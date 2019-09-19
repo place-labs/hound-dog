@@ -12,7 +12,7 @@ module HoundDog
     # ETCD Configuration
     ###########################################################################
     setting etcd_host : String = ENV["ETCD_HOST"]? || "127.0.0.1"
-    setting etcd_port : UInt16 = (ENV["ETCD_PORT"]? || 2379).to_u16
+    setting etcd_port : Int32 = (ENV["ETCD_PORT"]? || 2379).to_i
     setting etcd_ttl : Int64 = (ENV["ETCD_TTL"]? || 5).to_i64
   end
 end

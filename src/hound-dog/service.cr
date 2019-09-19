@@ -1,6 +1,6 @@
 require "tasker"
+require "etcd"
 
-require "./etcd"
 require "./settings"
 
 # - watch namespace
@@ -19,14 +19,14 @@ module HoundDog
       port: UInt16,
     )
 
-    # Class level http client
-    @@etcd = HoundDog::Etcd.new(
+    getter etcd
+    @@etcd : Etcd::Client = Etcd.client(
       host: HoundDog.settings.etcd_host,
       port: HoundDog.settings.etcd_port,
     )
 
     # Wrapper for Etcd event subscription
-    @watchfeed : Etcd::WatchFeed?
+    @watchfeed : Etcd::Watch::Watcher?
 
     # Flag for lease renewal
     getter registered = false
@@ -49,19 +49,19 @@ module HoundDog
       key = node_key
       value = Service.key_value(@node)
 
+      kv = @@etcd.kv.range(key).kvs.try &.first?
+
       # Check for key-value existence
-      if (kv = @@etcd.range(key).first?)
-        if kv.key == key && kv.value == value && kv.lease
-          # Renew lease if key-value and lease present
-          return keep_alive(kv.lease.as(Int64), ttl)
-        end
+      if kv && kv.key == key && kv.value == value && kv.lease
+        # Renew lease if key-value and lease present
+        return keep_alive(kv.lease.as(Int64), ttl)
       end
 
       # Secure and maintain lease from etcd
-      lease = @@etcd.lease_grant ttl
+      lease = @@etcd.lease.grant(ttl)
 
       # Register service under namespace
-      @registered = @@etcd.put(key, value, lease: lease[:id]).as(Bool)
+      @registered = !@@etcd.kv.put(key, value, lease: lease[:id]).nil?
       raise "Failed to register #{@node} under #{@service}" unless @registered
 
       # Types don't normalise from above check, have to cast.
@@ -71,7 +71,7 @@ module HoundDog
     # unregister current services
     #
     def unregister
-      @registered = @@etcd.delete(node_key) == 0 if @registered
+      @registered = @@etcd.kv.delete(node_key) == 0 if @registered
       !@registered
     end
 
@@ -79,7 +79,7 @@ module HoundDog
     #
     def self.nodes(service) : Array(Node)
       namespace = "#{@@namespace}/#{service}/"
-      range = @@etcd.range_prefix namespace
+      range = @@etcd.kv.range_prefix(namespace).kvs || [] of Etcd::Model::Kv
       range.map do |n|
         self.node(n.value.as(String))
       end
@@ -88,9 +88,8 @@ module HoundDog
     # List available services
     #
     def self.services
-      @@etcd.range_prefix(@@namespace).compact_map do |r|
-        r.key.as(String).split('/')[1]?
-      end.uniq
+      kvs = @@etcd.kv.range_prefix(@@namespace).kvs || [] of Etcd::Model::Kv
+      kvs.compact_map { |r| r.key.as(String).split('/')[1]? }.uniq
     end
 
     # Utils
@@ -122,7 +121,7 @@ module HoundDog
     alias Event = NamedTuple(
       key: String,
       value: String?,
-      type: Etcd::WatchEvent::Type,
+      type: Etcd::Model::WatchEvent::Type,
       namespace: String,
       service: String?,
     )
@@ -130,21 +129,19 @@ module HoundDog
     # Asynchronous interface
     def self.watch(service, &block : Event ->)
       prefix = "#{@@namespace}/#{service}"
-      @@etcd.watch_prefix(prefix) do |events|
+      @@etcd.watch.watch_prefix(prefix) do |events|
         events.each { |event| block.call self.parse_event(event) }
       end
     end
 
-    def self.parse_event(event : Etcd::WatchEvent) : Event
-      kv = event.kv.as(Etcd::KV)
-      event_type = event.type.as(Etcd::WatchEvent::Type)
-      key = kv.key.as(String)
+    def self.parse_event(event : Etcd::Model::WatchEvent) : Event
+      key = event.kv.key
       tokens = key.split('/')
 
       {
         key:       key,
-        value:     kv.value,
-        type:      event_type,
+        value:     event.kv.value,
+        type:      event.type,
         namespace: tokens[0],
         service:   tokens[1]?,
       }
@@ -157,7 +154,7 @@ module HoundDog
       Tasker.instance.in(retry_interval.seconds) do
         if @registered
           begin
-            renewed_ttl = @@etcd.lease_keep_alive id
+            renewed_ttl = @@etcd.lease.keep_alive(id)
             spawn self.keep_alive(id, renewed_ttl)
           rescue e
             HoundDog.settings.logger.error("in keep_alive: error=#{e.inspect_with_backtrace}")

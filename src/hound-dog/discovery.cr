@@ -1,8 +1,8 @@
+require "etcd"
 require "http"
 require "json"
 require "rendezvous-hash"
 
-require "./etcd"
 require "./service"
 require "./settings"
 
@@ -66,9 +66,9 @@ module HoundDog
       value = event[:value]
 
       case event[:type]
-      when Etcd::WatchEvent::Type::PUT
+      when Etcd::Model::WatchEvent::Type::PUT
         @rendezvous.add(value) if value
-      when Etcd::WatchEvent::Type::DELETE
+      when Etcd::Model::WatchEvent::Type::DELETE
         # Only have the key on delete events
         ip = key.split('/').last
         node = @rendezvous.nodes.find &.starts_with?(ip)

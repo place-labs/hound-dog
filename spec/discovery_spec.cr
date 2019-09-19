@@ -3,13 +3,13 @@ require "./helper"
 module HoundDog
   describe Discovery do
     etcd_host = ENV["ETCD_HOST"]? || "127.0.0.1"
-    etcd_port = (ENV["ETCD_PORT"]? || 2379).to_u16
-    etcd_ttl = (ENV["ETCD_TTL"]? || 3).to_i64
-    client = Etcd.new(etcd_host, etcd_port, etcd_ttl)
+    etcd_port = (ENV["ETCD_PORT"]? || 2379).to_i
+    etcd_ttl = (ENV["ETCD_TTL"]? || 1).to_i64
+    client = Etcd.client(etcd_host, etcd_port)
     namespace = HoundDog.settings.service_namespace
 
     Spec.before_each do
-      client.delete_prefix namespace
+      client.kv.delete_prefix namespace
     end
 
     it "registers with etcd" do
@@ -28,7 +28,7 @@ module HoundDog
       )
 
       spawn discovery.register
-      sleep 0.5
+      sleep 0.1
 
       # Ensure service registered
       discovery.nodes.should eq [node]
@@ -36,7 +36,7 @@ module HoundDog
 
       discovery.unregister.should be_true
 
-      sleep 0.5
+      sleep 0.1
 
       # Ensure service registered
       discovery.nodes.should be_empty
@@ -51,11 +51,11 @@ module HoundDog
       node1 = Service::Node.new(ip: "tree", port: port)
 
       # Create some services
-      lease = client.lease_grant etcd_ttl
+      lease = client.lease.grant etcd_ttl
 
       key = "#{namespace}/#{service}/#{node0[:ip]}"
       value = Service.key_value(node0)
-      client.put(key, value, lease: lease[:id])
+      client.kv.put(key, value, lease: lease[:id])
 
       discovery = Discovery.new(
         service: service,
@@ -64,7 +64,7 @@ module HoundDog
       )
 
       spawn discovery.register
-      sleep 1
+      sleep 0.1
 
       # Local nodes should match remote notes after initialisation
 
@@ -90,16 +90,16 @@ module HoundDog
       )
 
       spawn discovery.register
-      sleep 1
+      sleep 0.1
 
       # Create a service
-      lease = client.lease_grant etcd_ttl
+      lease = client.lease.grant etcd_ttl
       key = "#{namespace}/#{service}/#{new_node[:ip]}"
 
       value = Service.key_value(new_node)
-      client.put(key, value, lease: lease[:id])
+      client.kv.put(key, value, lease: lease[:id])
 
-      sleep 1
+      sleep 0.1
 
       etcd_nodes = Service.nodes(service).sort_by { |s| s[:ip] }
       local_nodes = discovery.nodes.sort_by { |s| s[:ip] }
@@ -118,10 +118,10 @@ module HoundDog
       )
 
       # Create a service
-      lease = client.lease_grant etcd_ttl
+      lease = client.lease.grant etcd_ttl
       key = "#{namespace}/#{service}/#{new_node[:ip]}"
       value = Service.key_value(new_node)
-      client.put(key, value, lease: lease[:id])
+      client.kv.put(key, value, lease: lease[:id])
 
       discovery = Discovery.new(
         service: service,
@@ -130,7 +130,7 @@ module HoundDog
       )
 
       spawn discovery.register
-      sleep 1
+      sleep 0.1
 
       etcd_nodes = Service.nodes(service).sort_by { |s| s[:ip] }
       local_nodes = discovery.nodes.sort_by { |s| s[:ip] }
@@ -138,10 +138,10 @@ module HoundDog
       # Local nodes should match remote notes after initialisation
       etcd_nodes.should eq local_nodes
 
-      client.delete(key)
+      client.kv.delete(key)
       discovery.unregister
 
-      sleep 1
+      sleep 0.1
 
       # Local nodes should match remote notes after a delete
       discovery.nodes.should be_empty

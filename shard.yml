@@ -9,6 +9,10 @@ dependencies:
   active-model:
     github: spider-gazelle/active-model
 
+  etcd:
+    github: aca-labs/crystal-etcd
+    branch: master
+
   rendezvous-hash:
     github: caspiano/rendezvous-hash
 
@@ -17,9 +21,6 @@ dependencies:
 
   tokenizer:
     github: spider-gazelle/tokenizer
-
-  kilt:
-    github: jeromegn/kilt
 
 development_dependencies:
   ameba:
