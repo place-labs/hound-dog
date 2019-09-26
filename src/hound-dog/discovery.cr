@@ -10,18 +10,20 @@ require "./settings"
 #
 module HoundDog
   class Discovery
-    getter service, ip, port
+    getter service, ip, port, node
 
     def initialize(
       @service : String,
       @ip : String = "127.0.0.1",
       @port : UInt16 = 8080
     )
+      @node = {ip: @ip, port: @port}
+
       # Get service nodes
       nodes = Service.nodes(@service).map { |n| Service.key_value(n) }
       @service_events = Service.new(
         service: @service,
-        node: {ip: @ip, port: @port},
+        node: @node,
       )
 
       # Initialiase the hash
@@ -39,6 +41,13 @@ module HoundDog
     def find(key : String) : Service::Node
       service_value = @rendezvous.find(key)
       Service.node(service_value)
+    end
+
+    # Determine if key maps to current node
+    #
+    def own_node?(key : String) : Bool
+      service_value = @rendezvous.find(key)
+      Service.node(service_value) == @node
     end
 
     # Consistent hash nodes

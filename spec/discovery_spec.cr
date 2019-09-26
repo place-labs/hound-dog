@@ -12,6 +12,28 @@ module HoundDog
       client.kv.delete_prefix namespace
     end
 
+    it "#own_node?" do
+      service = "api"
+      port : UInt16 = 42
+
+      node = Service::Node.new(
+        ip: "foo",
+        port: port,
+      )
+
+      discovery = Discovery.new(
+        service: service,
+        ip: node[:ip],
+        port: node[:port],
+      )
+
+      spawn discovery.register
+      sleep 0.1
+
+      discovery.own_node?("hello").should be_true
+      discovery.unregister.should be_true
+    end
+
     it "registers with etcd" do
       service = "api"
       port : UInt16 = 42
