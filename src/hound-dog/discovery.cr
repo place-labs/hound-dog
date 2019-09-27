@@ -11,6 +11,7 @@ require "./settings"
 module HoundDog
   class Discovery
     getter service, ip, port, node
+    private getter callback : Proc(Void)? = nil
 
     def initialize(
       @service : String,
@@ -58,6 +59,13 @@ module HoundDog
 
     # Register service
     #
+    def register(&callback : Proc(Void))
+      @callback = callback
+      @service_events.register
+    end
+
+    # Register service
+    #
     def register
       @service_events.register
     end
@@ -83,6 +91,8 @@ module HoundDog
         node = @rendezvous.nodes.find &.starts_with?(ip)
         @rendezvous.remove?(node) if node
       end
+      # Trigger change callback if present
+      callback.not_nil!.call if callback
     end
 
     def finalize

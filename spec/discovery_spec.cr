@@ -12,6 +12,35 @@ module HoundDog
       client.kv.delete_prefix namespace
     end
 
+    it "accepts a callback" do
+      service = "api"
+
+      discovery = Discovery.new(
+        service: service,
+        ip: "bar",
+        port: 41_u16,
+      )
+
+      chan = Channel(Nil).new
+      spawn do
+        discovery.register do
+          chan.send nil
+        end
+      end
+
+      node0 = Service::Node.new(
+        ip: "foo",
+        port: 23_u16,
+      )
+
+      key = "#{namespace}/#{service}/#{node0[:ip]}"
+      value = Service.key_value(node0)
+      client.kv.put(key, value)
+
+      chan.receive.should be_nil
+      discovery.unregister.should be_true
+    end
+
     it "#own_node?" do
       service = "api"
       port : UInt16 = 42
@@ -112,7 +141,7 @@ module HoundDog
       )
 
       spawn discovery.register
-      sleep 0.1
+      Fiber.yield
 
       # Create a service
       lease = client.lease.grant etcd_ttl
