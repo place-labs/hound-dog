@@ -24,6 +24,4 @@ dependencies:
 
 development_dependencies:
   ameba:
-    github: veelenga/ameba
-  coverage:
-    github: anykeyh/crystal-coverage
+    github: crystal-ameba/ameba
