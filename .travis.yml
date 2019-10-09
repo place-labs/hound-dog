@@ -1,13 +1,14 @@
 language: crystal
 
+env:
+  - TRAVIS_TEST=true
+
 services:
   - docker
 
 before_install:
   # Install ETCD
-  - docker run -p "2379:2379" -p "2380:2380" -e ALLOW_NONE_AUTHENTICATION=yes -d bitnami/etcd:3.3.13
-  - sleep 5
-  - export TRAVIS_TEST=true
+  - docker run --net="host" -p "2379:2379" -p "2380:2380" -e ALLOW_NONE_AUTHENTICATION=yes -d bitnami/etcd:3.3.13
 
 install:
   - shards install
