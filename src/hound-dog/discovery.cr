@@ -16,7 +16,7 @@ module HoundDog
     def initialize(
       @service : String,
       @ip : String = "127.0.0.1",
-      @port : UInt16 = 8080
+      @port : Int32 = 8080
     )
       @node = {ip: @ip, port: @port}
 

@@ -16,7 +16,7 @@ module HoundDog
     # Node metadata
     alias Node = NamedTuple(
       ip: String,
-      port: UInt16,
+      port: Int32,
     )
 
     getter etcd
@@ -103,7 +103,7 @@ module HoundDog
       ip, port = key.split(':')
       {
         ip:   ip,
-        port: port.to_u16,
+        port: port.to_i,
       }
     end
 

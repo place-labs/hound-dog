@@ -50,7 +50,7 @@ module HoundDog
       it "registers a service" do
         service = "carrots"
         ip = "127.0.0.1"
-        port : UInt16 = 4242
+        port : Int32 = 4242
         ttl : Int64 = 1
 
         node = {
@@ -82,7 +82,7 @@ module HoundDog
         service = "potato"
         ip0 = "127.0.0.1"
         ip1 = "0.0.0.0"
-        port : UInt16 = 4242
+        port : Int32 = 4242
         ttl : Int64 = 1
 
         node0 = {

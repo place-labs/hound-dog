@@ -18,7 +18,7 @@ module HoundDog
       discovery = Discovery.new(
         service: service,
         ip: "bar",
-        port: 41_u16,
+        port: 41,
       )
 
       chan = Channel(Nil).new
@@ -30,7 +30,7 @@ module HoundDog
 
       node0 = Service::Node.new(
         ip: "foo",
-        port: 23_u16,
+        port: 23,
       )
 
       key = "#{namespace}/#{service}/#{node0[:ip]}"
@@ -43,7 +43,7 @@ module HoundDog
 
     it "#own_node?" do
       service = "api"
-      port : UInt16 = 42
+      port : Int32 = 42
 
       node = Service::Node.new(
         ip: "foo",
@@ -65,7 +65,7 @@ module HoundDog
 
     it "registers with etcd" do
       service = "api"
-      port : UInt16 = 42
+      port : Int32 = 42
 
       node = Service::Node.new(
         ip: "foo",
@@ -96,7 +96,7 @@ module HoundDog
 
     it "initialises rendezvous hash" do
       service = "api"
-      port : UInt16 = 42
+      port : Int32 = 42
 
       node0 = Service::Node.new(ip: "foo", port: port)
       node1 = Service::Node.new(ip: "tree", port: port)
@@ -127,7 +127,7 @@ module HoundDog
 
     it "transparently handles service registration" do
       service = "api"
-      port : UInt16 = 42
+      port : Int32 = 42
 
       new_node = Service::Node.new(
         ip: "foo",
@@ -161,7 +161,7 @@ module HoundDog
 
     it "transparently handles service removal" do
       service = "api"
-      port : UInt16 = 42
+      port : Int32 = 42
 
       new_node = Service::Node.new(
         ip: "foo",
