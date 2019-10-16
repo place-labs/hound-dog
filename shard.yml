@@ -6,6 +6,9 @@ dependencies:
     github: aca-labs/crystal-etcd
     branch: master
 
+  habitat:
+    github: luckyframework/habitat
+
   rendezvous-hash:
     github: caspiano/rendezvous-hash
 
