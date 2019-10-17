@@ -48,7 +48,7 @@ module HoundDog
     #
     def own_node?(key : String) : Bool
       service_value = @rendezvous.find(key)
-      Service.node(service_value) == @node
+      !service_value.nil? && Service.node(service_value) == @node
     end
 
     # Consistent hash nodes
