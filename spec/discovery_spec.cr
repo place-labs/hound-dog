@@ -89,7 +89,7 @@ module HoundDog
 
       sleep 0.1
 
-      # Ensure service registered
+      # Ensure service deregistered
       discovery.nodes.should be_empty
       Service.nodes(service).should be_empty
     end

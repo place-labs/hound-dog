@@ -38,10 +38,13 @@ module HoundDog
     end
 
     # Consistent hash lookup
-    #
+    def find(key : String) : Service::Node?
+      @rendezvous.find(key).try &->Service.node(String)
+    end
+
+    # Consistent hash lookup
     def find(key : String) : Service::Node
-      service_value = @rendezvous.find(key)
-      Service.node(service_value)
+      Service.node(@rendezvous.find!(key))
     end
 
     # Determine if key maps to current node
