@@ -43,7 +43,7 @@ module HoundDog
     end
 
     # Consistent hash lookup
-    def find(key : String) : Service::Node
+    def find!(key : String) : Service::Node
       Service.node(@rendezvous.find!(key))
     end
 
