@@ -60,7 +60,7 @@ module HoundDog
 
         registration = Service.new(service: service, node: node)
 
-        spawn { registration.register(ttl: ttl) }
+        spawn(same_thread: true) { registration.register(ttl: ttl) }
 
         # Wait for registration
         sleep 0.1
@@ -106,12 +106,12 @@ module HoundDog
         end
 
         # Start monitoring the namespace
-        spawn { watchfeed0.start }
+        spawn(same_thread: true) { watchfeed0.start }
 
         sleep 0.1
 
         # Register another node
-        spawn do
+        spawn(same_thread: true) do
           subscription1.register(ttl: ttl)
         end
 

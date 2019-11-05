@@ -155,7 +155,7 @@ module HoundDog
         if @registered
           begin
             renewed_ttl = @@etcd.lease.keep_alive(id)
-            spawn self.keep_alive(id, renewed_ttl)
+            spawn(same_thread: true) { self.keep_alive(id, renewed_ttl) }
           rescue e
             HoundDog.settings.logger.error("in keep_alive: error=#{e.inspect_with_backtrace}")
           end

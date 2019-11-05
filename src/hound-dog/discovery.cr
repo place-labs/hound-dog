@@ -34,7 +34,7 @@ module HoundDog
       watchfeed = @service_events.monitor(&->handle_service_message(Service::Event))
 
       # ASYNC! spawn service monitoring
-      spawn watchfeed.start
+      spawn(same_thread: true) { watchfeed.start }
     end
 
     # Consistent hash lookup

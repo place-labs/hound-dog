@@ -22,7 +22,7 @@ module HoundDog
       )
 
       chan = Channel(Nil).new
-      spawn do
+      spawn(same_thread: true) do
         discovery.register do
           chan.send nil
         end
@@ -56,7 +56,7 @@ module HoundDog
         port: node[:port],
       )
 
-      spawn discovery.register
+      spawn(same_thread: true) { discovery.register }
       sleep 0.1
 
       discovery.own_node?("hello").should be_true
@@ -78,7 +78,7 @@ module HoundDog
         port: node[:port],
       )
 
-      spawn discovery.register
+      spawn(same_thread: true) { discovery.register }
       sleep 0.1
 
       # Ensure service registered
@@ -114,7 +114,7 @@ module HoundDog
         port: node1[:port],
       )
 
-      spawn discovery.register
+      spawn(same_thread: true) { discovery.register }
       sleep 0.1
 
       # Local nodes should match remote notes after initialisation
@@ -140,7 +140,7 @@ module HoundDog
         port: port,
       )
 
-      spawn discovery.register
+      spawn(same_thread: true) { discovery.register }
       Fiber.yield
 
       # Create a service
@@ -180,7 +180,7 @@ module HoundDog
         port: port,
       )
 
-      spawn discovery.register
+      spawn(same_thread: true) { discovery.register }
       sleep 0.1
 
       etcd_nodes = Service.nodes(service).sort_by { |s| s[:ip] }

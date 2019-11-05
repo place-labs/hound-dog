@@ -29,7 +29,7 @@ discovery.nodes          #=> [{ip: "some ip", port: 8080}]
 discovery.find("sauce")  #=> {ip: "some ip", port: 8080}
 
 # Register self to etcd
-spawn discovery.register
+spawn(same_thread: true) { discovery.register }
 
 # Rendezvous hash transparently updated
 discovery.nodes          #=> [{ip: "some ip", port: 8080}, {ip: "127.0.0.1", port: 1996}]
