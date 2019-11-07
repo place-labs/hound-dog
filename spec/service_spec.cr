@@ -137,7 +137,7 @@ module HoundDog
         subscription0.unregister
         subscription0.registered.should be_false
 
-        sleep ttl
+        Service.clear_namespace
 
         # Check the service is no longer present in etcd
         Service.nodes(service).should_not contain node0

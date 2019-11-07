@@ -92,6 +92,12 @@ module HoundDog
       kvs.compact_map { |r| r.key.as(String).split('/')[1]? }.uniq
     end
 
+    # Remove all keys beneath namespace
+    #
+    def self.clear_namespace
+      @@etcd.kv.delete_prefix(@@namespace)
+    end
+
     # Utils
     ###########################################################################
 
