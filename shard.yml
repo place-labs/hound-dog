@@ -13,7 +13,6 @@ dependencies:
 
   rendezvous-hash:
     github: caspiano/rendezvous-hash
-    version: ~> 0.2
 
   tasker:
     github: spider-gazelle/tasker

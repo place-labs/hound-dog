@@ -21,14 +21,13 @@ module HoundDog
       @node = {ip: @ip, port: @port}
 
       # Get service nodes
-      nodes = Service.nodes(@service).map { |n| Service.key_value(n) }
       @service_events = Service.new(
         service: @service,
         node: @node,
       )
 
       # Initialiase the hash
-      @rendezvous = RendezvousHash.new(nodes: nodes)
+      @rendezvous = RendezvousHash.new(nodes: current_nodes)
 
       # Prepare watchfeed
       watchfeed = @service_events.monitor(&->handle_service_message(Service::Event))
@@ -82,20 +81,13 @@ module HoundDog
     # Event handler
     #
     def handle_service_message(event : Service::Event)
-      key = event[:key]
-      value = event[:value]
-
-      case event[:type]
-      when Etcd::Model::WatchEvent::Type::PUT
-        @rendezvous.add(value) if value
-      when Etcd::Model::WatchEvent::Type::DELETE
-        # Only have the key on delete events
-        ip = key.split('/').last
-        node = @rendezvous.nodes.find &.starts_with?(ip)
-        @rendezvous.remove?(node) if node
-      end
+      @rendezvous.replace_nodes(current_nodes)
       # Trigger change callback if present
       callback.not_nil!.call if callback
+    end
+
+    private def current_nodes
+      Service.nodes(@service).map { |n| Service.key_value(n) }
     end
 
     def finalize
