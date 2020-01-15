@@ -28,8 +28,12 @@ module HoundDog
     # Wrapper for Etcd event subscription
     @watchfeed : Etcd::Watch::Watcher?
 
-    # Flag for lease renewal
-    getter registered = false
+    # Lease id for service registration in Etcd
+    getter lease_id : Int64? = nil
+
+    def registered
+      !!(lease_id)
+    end
 
     def initialize(@service : String, @node : Node)
     end
@@ -44,7 +48,7 @@ module HoundDog
     # - Sets node key under service namespace
     # - Spawns a fiber to maintain the lease
     def register(ttl : Int64 = HoundDog.settings.etcd_ttl)
-      return if @registered
+      return if registered
 
       key = node_key
       value = Service.key_value(@node)
@@ -61,8 +65,10 @@ module HoundDog
       lease = @@etcd.lease.grant(ttl)
 
       # Register service under namespace
-      @registered = !@@etcd.kv.put(key, value, lease: lease[:id]).nil?
-      raise "Failed to register #{@node} under #{@service}" unless @registered
+      key_set = !@@etcd.kv.put(key, value, lease: lease[:id]).nil?
+      raise "Failed to register #{@node} under #{@service}" unless key_set
+
+      @lease_id = lease[:id]
 
       # Types don't normalise from above check, have to cast.
       keep_alive(lease[:id], lease[:ttl])
@@ -71,8 +77,10 @@ module HoundDog
     # unregister current services
     #
     def unregister
-      @registered = @@etcd.kv.delete(node_key) == 0 if @registered
-      !@registered
+      return unless (id = lease_id)
+      lease_deleted = @@etcd.lease.revoke(id)
+      raise "Failed to unregister #{@node} under #{@service}" unless lease_deleted
+      @lease_id = nil
     end
 
     # List nodes under a service namespace
@@ -158,7 +166,7 @@ module HoundDog
     protected def keep_alive(id : Int64, ttl : Int64)
       retry_interval = ttl // 2
       Tasker.instance.in(retry_interval.seconds) do
-        if @registered
+        if registered
           begin
             renewed_ttl = @@etcd.lease.keep_alive(id)
             spawn(same_thread: true) { self.keep_alive(id, renewed_ttl) }

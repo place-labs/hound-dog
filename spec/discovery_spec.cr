@@ -38,7 +38,9 @@ module HoundDog
       client.kv.put(key, value)
 
       chan.receive.should be_nil
-      discovery.unregister.should be_true
+      discovery.unregister
+      sleep 0.1
+      discovery.nodes.should be_empty
     end
 
     it "#own_node?" do
@@ -60,7 +62,9 @@ module HoundDog
       sleep 0.1
 
       discovery.own_node?("hello").should be_true
-      discovery.unregister.should be_true
+      discovery.unregister
+      sleep 0.1
+      discovery.nodes.should be_empty
     end
 
     it "registers with etcd" do
@@ -85,8 +89,7 @@ module HoundDog
       discovery.nodes.should eq [node]
       Service.nodes(service).should eq [node]
 
-      discovery.unregister.should be_true
-
+      discovery.unregister
       sleep 0.1
 
       # Ensure service deregistered
