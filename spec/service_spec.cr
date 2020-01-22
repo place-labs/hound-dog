@@ -63,7 +63,7 @@ module HoundDog
         spawn(same_thread: true) { registration.register(ttl: ttl) }
 
         # Wait for registration
-        sleep 0.1
+        sleep 0.2
 
         # Check that service registered
         Service.nodes(service).should contain node
@@ -108,14 +108,14 @@ module HoundDog
         # Start monitoring the namespace
         spawn(same_thread: true) { watchfeed0.start }
 
-        sleep 0.1
+        sleep 0.2
 
         # Register another node
         spawn(same_thread: true) do
           subscription1.register(ttl: ttl)
         end
 
-        sleep 0.1
+        sleep 0.2
 
         # Check callbacks are received
         channel.receive[:type].should eq Etcd::Model::WatchEvent::Type::PUT

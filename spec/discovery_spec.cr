@@ -39,7 +39,7 @@ module HoundDog
 
       chan.receive.should be_nil
       discovery.unregister
-      sleep 0.1
+      sleep 0.2
       discovery.nodes.should be_empty
     end
 
@@ -59,11 +59,11 @@ module HoundDog
       )
 
       spawn(same_thread: true) { discovery.register }
-      sleep 0.1
+      sleep 0.2
 
       discovery.own_node?("hello").should be_true
       discovery.unregister
-      sleep 0.1
+      sleep 0.2
       discovery.nodes.should be_empty
     end
 
@@ -83,14 +83,14 @@ module HoundDog
       )
 
       spawn(same_thread: true) { discovery.register }
-      sleep 0.1
+      sleep 0.2
 
       # Ensure service registered
       discovery.nodes.should eq [node]
       Service.nodes(service).should eq [node]
 
       discovery.unregister
-      sleep 0.1
+      sleep 0.2
 
       # Ensure service deregistered
       discovery.nodes.should be_empty
@@ -118,7 +118,7 @@ module HoundDog
       )
 
       spawn(same_thread: true) { discovery.register }
-      sleep 0.1
+      sleep 0.2
 
       # Local nodes should match remote notes after initialisation
 
@@ -153,7 +153,7 @@ module HoundDog
       value = Service.key_value(new_node)
       client.kv.put(key, value, lease: lease[:id])
 
-      sleep 0.1
+      sleep 0.2
 
       etcd_nodes = Service.nodes(service).sort_by { |s| s[:ip] }
       local_nodes = discovery.nodes.sort_by { |s| s[:ip] }
@@ -184,7 +184,7 @@ module HoundDog
       )
 
       spawn(same_thread: true) { discovery.register }
-      sleep 0.1
+      sleep 0.2
 
       etcd_nodes = Service.nodes(service).sort_by { |s| s[:ip] }
       local_nodes = discovery.nodes.sort_by { |s| s[:ip] }
@@ -195,7 +195,7 @@ module HoundDog
       client.kv.delete(key)
       discovery.unregister
 
-      sleep 0.1
+      sleep 0.2
 
       # Local nodes should match remote notes after a delete
       discovery.nodes.should be_empty

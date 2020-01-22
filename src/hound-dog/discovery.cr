@@ -59,6 +59,8 @@ module HoundDog
       @rendezvous.nodes.map &->Service.node(String)
     end
 
+    delegate register, unregister, lease_id, to: @service_events
+
     # Register service
     #
     def register(&callback : Proc(Void))
@@ -66,16 +68,8 @@ module HoundDog
       @service_events.register
     end
 
-    # Register service
-    #
-    def register
-      @service_events.register
-    end
-
-    # Remove service from namespace
-    #
-    def unregister
-      @service_events.unregister
+    def registered?
+      @service_events.registered
     end
 
     # Event handler
