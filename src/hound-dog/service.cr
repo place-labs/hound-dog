@@ -1,13 +1,13 @@
-require "tasker"
 require "etcd"
 require "mutex"
+require "tasker"
 
 require "./settings"
 
-# - watch namespace
-# - register self
-# - add nodes from etcd
-
+# Facilitates
+# - Watching a namespace.
+# - Registering discovery information.
+# - Querying nodes under a namespace.
 module HoundDog
   class Service
     # Namespace under which all services are registered in etcd

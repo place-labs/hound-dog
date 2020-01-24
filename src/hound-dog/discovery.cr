@@ -7,7 +7,6 @@ require "./service"
 require "./settings"
 
 # Transparently manage service discovery through consistent hashing and ETCD
-#
 module HoundDog
   class Discovery
     getter service, ip, port, node
@@ -59,17 +58,13 @@ module HoundDog
       @rendezvous.nodes.map &->Service.node(String)
     end
 
-    delegate register, unregister, lease_id, to: @service_events
+    delegate register, unregister, lease_id, registered?, to: @service_events
 
     # Register service
     #
     def register(&callback : Proc(Void))
       @callback = callback
       @service_events.register
-    end
-
-    def registered?
-      @service_events.registered
     end
 
     # Event handler
