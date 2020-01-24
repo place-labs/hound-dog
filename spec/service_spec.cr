@@ -70,7 +70,7 @@ module HoundDog
 
         registration.unregister
 
-        registration.registered.should be_false
+        registration.registered?.should be_false
 
         sleep ttl
 
@@ -124,7 +124,7 @@ module HoundDog
         Service.nodes(service).should contain node1
 
         subscription1.unregister
-        subscription1.registered.should be_false
+        subscription1.registered?.should be_false
 
         sleep ttl
 
@@ -135,7 +135,7 @@ module HoundDog
         channel.receive[:type].should eq Etcd::Model::WatchEvent::Type::DELETE
 
         subscription0.unregister
-        subscription0.registered.should be_false
+        subscription0.registered?.should be_false
 
         Service.clear_namespace
 

@@ -2,10 +2,8 @@ require "./helper"
 
 module HoundDog
   describe Discovery do
-    etcd_host = ENV["ETCD_HOST"]? || "127.0.0.1"
-    etcd_port = (ENV["ETCD_PORT"]? || 2379).to_i
     etcd_ttl = (ENV["ETCD_TTL"]? || 1).to_i64
-    client = Etcd.client(etcd_host, etcd_port)
+    client = HoundDog.etcd_client
     namespace = HoundDog.settings.service_namespace
 
     Spec.before_each do
@@ -40,7 +38,7 @@ module HoundDog
       chan.receive.should be_nil
       discovery.unregister
       sleep 0.2
-      discovery.nodes.should be_empty
+      discovery.nodes.should eq [node0]
     end
 
     it "#own_node?" do

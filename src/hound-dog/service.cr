@@ -1,5 +1,6 @@
 require "tasker"
 require "etcd"
+require "mutex"
 
 require "./settings"
 
@@ -10,7 +11,6 @@ require "./settings"
 module HoundDog
   class Service
     # Namespace under which all services are registered in etcd
-    getter namespace
     @@namespace : String = HoundDog.settings.service_namespace
 
     # Node metadata
@@ -19,11 +19,14 @@ module HoundDog
       port: Int32,
     )
 
-    getter etcd
-    @@etcd : Etcd::Client = Etcd.client(
-      host: HoundDog.settings.etcd_host,
-      port: HoundDog.settings.etcd_port,
-    )
+    private getter etcd_client_lock : Mutex = Mutex.new
+    @etcd : Etcd::Client?
+
+    def etcd
+      etcd_client_lock.synchronize do
+        yield (@etcd ||= HoundDog.etcd_client).as(Etcd::Client)
+      end
+    end
 
     # Wrapper for Etcd event subscription
     @watchfeed : Etcd::Watch::Watcher?
@@ -31,7 +34,7 @@ module HoundDog
     # Lease id for service registration in Etcd
     getter lease_id : Int64? = nil
 
-    def registered
+    def registered?
       !!(lease_id)
     end
 
@@ -48,37 +51,39 @@ module HoundDog
     # - Sets node key under service namespace
     # - Spawns a fiber to maintain the lease
     def register(ttl : Int64 = HoundDog.settings.etcd_ttl)
-      return if registered
+      return if registered?
 
       key = node_key
       value = Service.key_value(@node)
 
-      kv = @@etcd.kv.range(key).kvs.try &.first?
+      kv = etcd &.kv.range(key).kvs.try &.first?
 
       # Check for key-value existence
       if kv && kv.key == key && kv.value == value && kv.lease
+        @lease_id = kv.lease.as(Int64)
         # Renew lease if key-value and lease present
-        return keep_alive(kv.lease.as(Int64), ttl)
+        return keep_alive(ttl)
       end
 
       # Secure and maintain lease from etcd
-      lease = @@etcd.lease.grant(ttl)
+      lease = etcd &.lease.grant(ttl)
 
       # Register service under namespace
-      key_set = !@@etcd.kv.put(key, value, lease: lease[:id]).nil?
+      key_set = !(etcd &.kv.put(key, value, lease: lease[:id]).nil?)
       raise "Failed to register #{@node} under #{@service}" unless key_set
 
       @lease_id = lease[:id]
 
       # Types don't normalise from above check, have to cast.
-      keep_alive(lease[:id], lease[:ttl])
+      keep_alive(lease[:ttl])
     end
 
     # unregister current services
     #
     def unregister
       return unless (id = lease_id)
-      lease_deleted = @@etcd.lease.revoke(id)
+      lease_deleted = etcd &.lease.revoke(id)
+
       raise "Failed to unregister #{@node} under #{@service}" unless lease_deleted
       @lease_id = nil
     end
@@ -87,7 +92,7 @@ module HoundDog
     #
     def self.nodes(service) : Array(Node)
       namespace = "#{@@namespace}/#{service}/"
-      range = @@etcd.kv.range_prefix(namespace).kvs || [] of Etcd::Model::Kv
+      range = HoundDog.etcd_client.kv.range_prefix(namespace).kvs || [] of Etcd::Model::Kv
       range.map do |n|
         self.node(n.value.as(String))
       end
@@ -96,14 +101,14 @@ module HoundDog
     # List available services
     #
     def self.services
-      kvs = @@etcd.kv.range_prefix(@@namespace).kvs || [] of Etcd::Model::Kv
+      kvs = HoundDog.etcd_client.kv.range_prefix(@@namespace).kvs || [] of Etcd::Model::Kv
       kvs.compact_map { |r| r.key.as(String).split('/')[1]? }.uniq
     end
 
     # Remove all keys beneath namespace
     #
     def self.clear_namespace
-      @@etcd.kv.delete_prefix(@@namespace)
+      HoundDog.etcd_client.kv.delete_prefix(@@namespace)
     end
 
     # Utils
@@ -143,7 +148,7 @@ module HoundDog
     # Asynchronous interface
     def self.watch(service, &block : Event ->)
       prefix = "#{@@namespace}/#{service}"
-      @@etcd.watch.watch_prefix(prefix) do |events|
+      HoundDog.etcd_client.watch.watch_prefix(prefix) do |events|
         events.each { |event| block.call self.parse_event(event) }
       end
     end
@@ -163,13 +168,13 @@ module HoundDog
 
     # Method to defer renewal of lease with a dynamic TTL
     #
-    protected def keep_alive(id : Int64, ttl : Int64)
+    protected def keep_alive(ttl : Int64)
       retry_interval = ttl // 2
       Tasker.instance.in(retry_interval.seconds) do
-        if registered
+        if (id = lease_id)
           begin
-            renewed_ttl = @@etcd.lease.keep_alive(id)
-            spawn(same_thread: true) { self.keep_alive(id, renewed_ttl) }
+            renewed_ttl = etcd &.lease.keep_alive(id)
+            spawn(same_thread: true) { self.keep_alive(renewed_ttl) }
           rescue e
             HoundDog.settings.logger.error("in keep_alive: error=#{e.inspect_with_backtrace}")
           end
