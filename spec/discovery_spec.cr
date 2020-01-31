@@ -37,7 +37,6 @@ module HoundDog
 
       chan.receive.should be_nil
       discovery.unregister
-      sleep 0.2
       discovery.nodes.should eq [node0]
     end
 
@@ -61,7 +60,6 @@ module HoundDog
 
       discovery.own_node?("hello").should be_true
       discovery.unregister
-      sleep 0.2
       discovery.nodes.should be_empty
     end
 
