@@ -20,27 +20,26 @@ end
 # Create a new Discovery instance
 discovery = HoundDog::Discovery.new(
   service: "api",
-  ip: "127.0.0.1",
-  port: 1996,
+  uri: "https://api1:3000",
 )
 
 # There are already some nodes in etcd
-discovery.nodes          #=> [{ip: "some ip", port: 8080}]
-discovery.find("sauce")  #=> {ip: "some ip", port: 8080}
+discovery.nodes          #=> [{name: "ulid1", uri: #<URI:0xdeadbeef @fragment=nil, @host="api0", @password=nil, @path="", @port=3000, @query=nil, @scheme="https", @user=nil>}]
+discovery.find("sauce")  #=> {name: "ulid1", uri: #<URI:0xdeadbeef @fragment=nil, @host="api0", @password=nil, @path="", @port=3000, @query=nil, @scheme="https", @user=nil>}
 
 # Register self to etcd
 spawn(same_thread: true) { discovery.register }
 
 # Rendezvous hash transparently updated
-discovery.nodes          #=> [{ip: "some ip", port: 8080}, {ip: "127.0.0.1", port: 1996}]
+discovery.nodes  # [{name: "ulid1", uri: #<URI:0xdeadbeef @fragment=nil, @host="api0", @password=nil, @path="", @port=3000, @query=nil, @scheme="https", @user=nil>}, {name: "ulid2", uri: #<URI:0xbeefcafe @fragment=nil, @host="api0", @password=nil, @path="", @port=3000, @query=nil, @scheme="https", @user=nil>}]
 ```
 
 ## etcd
 
 ### Namespacing
 
-All services are registered beneath configured service namespace, i.e. a node under namespace `service` will be keyed as `service/#{service_name}/#{service_ip}`.
-Values are base64 encoded strings in the form `"#{ip}:#{port}"`.
+All services are registered beneath configured service namespace, i.e. a node under namespace `service` will be keyed as `service/#{service_name}/#{name}`.
+Values are base64 encoded strings in the form `uri`.
 
 ### Version
 

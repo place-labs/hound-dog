@@ -15,8 +15,8 @@ module HoundDog
 
       discovery = Discovery.new(
         service: service,
-        ip: "bar",
-        port: 41,
+        name: "rare",
+        uri: "ssh://meme@internet",
       )
 
       chan = Channel(Nil).new
@@ -26,13 +26,16 @@ module HoundDog
         end
       end
 
+      node0_name = "bub"
+      node0_uri = "http://127.0.0.1:4242"
+
       node0 = Service::Node.new(
-        ip: "foo",
-        port: 23,
+        name: node0_name,
+        uri: URI.parse(node0_uri),
       )
 
-      key = "#{namespace}/#{service}/#{node0[:ip]}"
-      value = Service.key_value(node0)
+      key = "#{namespace}/#{service}/#{node0_name}"
+      value = node0_uri
       client.kv.put(key, value)
 
       chan.receive.should be_nil
@@ -42,17 +45,13 @@ module HoundDog
 
     it "#own_node?" do
       service = "api"
-      port : Int32 = 42
-
-      node = Service::Node.new(
-        ip: "foo",
-        port: port,
-      )
+      node_name = "bub"
+      node_uri = "http://127.0.0.1:4242"
 
       discovery = Discovery.new(
         service: service,
-        ip: node[:ip],
-        port: node[:port],
+        name: node_name,
+        uri: node_uri,
       )
 
       spawn(same_thread: true) { discovery.register }
@@ -65,25 +64,21 @@ module HoundDog
 
     it "registers with etcd" do
       service = "api"
-      port : Int32 = 42
-
-      node = Service::Node.new(
-        ip: "foo",
-        port: port,
-      )
+      node_name = "tub"
+      node_uri = "http://127.0.0.1:4242"
 
       discovery = Discovery.new(
         service: service,
-        ip: node[:ip],
-        port: node[:port],
+        name: node_name,
+        uri: node_uri,
       )
 
       spawn(same_thread: true) { discovery.register }
       sleep 0.2
 
       # Ensure service registered
-      discovery.nodes.should eq [node]
-      Service.nodes(service).should eq [node]
+      discovery.nodes.should eq [discovery.node]
+      Service.nodes(service).should eq [discovery.node]
 
       discovery.unregister
       sleep 0.2
@@ -95,22 +90,32 @@ module HoundDog
 
     it "initialises rendezvous hash" do
       service = "api"
-      port : Int32 = 42
+      node0_name = "foo"
+      node0_uri = URI.parse("http://127.0.0.1:4242")
+      node1_name = "tree"
+      node1_uri = URI.parse("http://0.0.0.0:4000")
+      ttl : Int64 = 1
 
-      node0 = Service::Node.new(ip: "foo", port: port)
-      node1 = Service::Node.new(ip: "tree", port: port)
+      node0 = {
+        name: node0_name,
+        uri:  node0_uri,
+      }
+
+      node1 = {
+        name: node1_name,
+        uri:  node1_uri,
+      }
 
       # Create some services
       lease = client.lease.grant etcd_ttl
 
-      key = "#{namespace}/#{service}/#{node0[:ip]}"
-      value = Service.key_value(node0)
-      client.kv.put(key, value, lease: lease[:id])
+      key = "#{namespace}/#{service}/#{node0_name}"
+      client.kv.put(key, node0_uri, lease: lease[:id])
 
       discovery = Discovery.new(
         service: service,
-        ip: node1[:ip],
-        port: node1[:port],
+        name: node1_name,
+        uri: node1_uri,
       )
 
       spawn(same_thread: true) { discovery.register }
@@ -126,17 +131,13 @@ module HoundDog
 
     it "transparently handles service registration" do
       service = "api"
-      port : Int32 = 42
-
-      new_node = Service::Node.new(
-        ip: "foo",
-        port: port,
-      )
+      new_node_name = "foo"
+      new_node_uri = "http://127.0.0.1:4242"
 
       discovery = Discovery.new(
         service: service,
-        ip: "tree",
-        port: port,
+        name: new_node_name,
+        uri: new_node_uri,
       )
 
       spawn(same_thread: true) { discovery.register }
@@ -144,15 +145,14 @@ module HoundDog
 
       # Create a service
       lease = client.lease.grant etcd_ttl
-      key = "#{namespace}/#{service}/#{new_node[:ip]}"
+      key = "#{namespace}/#{service}/#{new_node_name}"
 
-      value = Service.key_value(new_node)
-      client.kv.put(key, value, lease: lease[:id])
+      client.kv.put(key, new_node_uri, lease: lease[:id])
 
       sleep 0.2
 
-      etcd_nodes = Service.nodes(service).sort_by { |s| s[:ip] }
-      local_nodes = discovery.nodes.sort_by { |s| s[:ip] }
+      etcd_nodes = Service.nodes(service).sort_by { |s| s[:name] }
+      local_nodes = discovery.nodes.sort_by { |s| s[:name] }
 
       # Local nodes should match remote notes after initialisation
       etcd_nodes.should eq local_nodes
@@ -160,30 +160,23 @@ module HoundDog
 
     it "transparently handles service removal" do
       service = "api"
-      port : Int32 = 42
 
-      new_node = Service::Node.new(
-        ip: "foo",
-        port: port,
+      discovery = Discovery.new(
+        service: service,
+        name: "tree",
+        uri: "http://127.0.0.1:4242"
       )
 
       # Create a service
       lease = client.lease.grant etcd_ttl
-      key = "#{namespace}/#{service}/#{new_node[:ip]}"
-      value = Service.key_value(new_node)
-      client.kv.put(key, value, lease: lease[:id])
-
-      discovery = Discovery.new(
-        service: service,
-        ip: "tree",
-        port: port,
-      )
+      key = "#{namespace}/#{service}/#{discovery.name}"
+      client.kv.put(key, discovery.uri.to_s, lease: lease[:id])
 
       spawn(same_thread: true) { discovery.register }
       sleep 0.2
 
-      etcd_nodes = Service.nodes(service).sort_by { |s| s[:ip] }
-      local_nodes = discovery.nodes.sort_by { |s| s[:ip] }
+      etcd_nodes = Service.nodes(service).sort_by { |s| s[:name] }
+      local_nodes = discovery.nodes.sort_by { |s| s[:name] }
 
       # Local nodes should match remote notes after initialisation
       etcd_nodes.should eq local_nodes

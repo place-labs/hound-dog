@@ -15,8 +15,8 @@ module HoundDog
 
     # Node metadata
     alias Node = NamedTuple(
-      ip: String,
-      port: Int32,
+      name: String,
+      uri: URI,
     )
 
     private getter etcd_client_lock : Mutex = Mutex.new
@@ -38,11 +38,21 @@ module HoundDog
       !!(lease_id)
     end
 
-    def initialize(@service : String, @node : Node)
-    end
+    getter name : String
+    getter node : Node
+    getter service : String
+    getter uri : URI
 
-    def node_key
-      "#{@@namespace}/#{@service}/#{@node[:ip]}"
+    private getter node_key : String
+
+    def initialize(
+      @service : String,
+      @name : String,
+      uri : URI | String
+    )
+      @uri = uri.is_a?(String) ? URI.parse(uri) : uri
+      @node = {name: @name, uri: @uri}
+      @node_key = "#{@@namespace}/#{@service}/#{@name}"
     end
 
     # Registers a node under a service namespace, passing events under namespace to the callback
@@ -53,13 +63,10 @@ module HoundDog
     def register(ttl : Int64 = HoundDog.settings.etcd_ttl)
       return if registered?
 
-      key = node_key
-      value = Service.key_value(@node)
-
-      kv = etcd &.kv.range(key).kvs.try &.first?
+      kv = etcd &.kv.range(node_key).kvs.try &.first?
 
       # Check for key-value existence
-      if kv && kv.key == key && kv.value == value && kv.lease
+      if kv && kv.key == node_key && kv.value == uri && kv.lease
         @lease_id = kv.lease.as(Int64)
         # Renew lease if key-value and lease present
         return keep_alive(ttl)
@@ -69,7 +76,7 @@ module HoundDog
       lease = etcd &.lease.grant(ttl)
 
       # Register service under namespace
-      key_set = !(etcd &.kv.put(key, value, lease: lease[:id]).nil?)
+      key_set = !(etcd &.kv.put(node_key, uri, lease: lease[:id]).nil?)
       raise "Failed to register #{@node} under #{@service}" unless key_set
 
       @lease_id = lease[:id]
@@ -78,7 +85,7 @@ module HoundDog
       keep_alive(lease[:ttl])
     end
 
-    # unregister current services
+    # Unregister current service node
     #
     def unregister
       return unless (id = lease_id)
@@ -88,13 +95,17 @@ module HoundDog
       @lease_id = nil
     end
 
+    # Service Namespace
+    ###########################################################################
+
     # List nodes under a service namespace
     #
     def self.nodes(service) : Array(Node)
       namespace = "#{@@namespace}/#{service}/"
       range = HoundDog.etcd_client.kv.range_prefix(namespace).kvs || [] of Etcd::Model::Kv
-      range.map do |n|
-        self.node(n.value.as(String))
+      range.compact_map do |n|
+        # Parse an Etcd KV into a Node
+        n.value.try { |v| self.node(key: n.key, value: v) }
       end
     end
 
@@ -111,36 +122,50 @@ module HoundDog
       HoundDog.etcd_client.kv.delete_prefix(@@namespace)
     end
 
-    # Utils
+    # Monitoring
     ###########################################################################
 
-    def self.key_value(node : Node) : String
-      "#{node[:ip]}:#{node[:port]}"
-    end
-
-    def self.node(key : String) : Node
-      ip, port = key.split(':')
-      {
-        ip:   ip,
-        port: port.to_i,
-      }
-    end
-
+    # Start monitoring the service namespace
+    #
     def monitor(&callback : Event ->)
+      unmonitor if @watchfeed
       @watchfeed = Service.watch(@service, &callback)
     end
 
+    # Stop monitoring the service namespace
+    #
     def unmonitor
       @watchfeed.try &.stop
+      @watchfeed = nil
+    end
+
+    # Utils
+    ###########################################################################
+
+    # Construct a node
+    #
+    def self.node(key : String, value : String) : Node
+      {
+        name: self.name_from_key(key),
+        uri:  URI.parse(value),
+      }
+    end
+
+    # Extract node name from key
+    #
+    def self.name_from_key(key : String)
+      key.split('/').last
     end
 
     # Watching
     ########################################################################
 
+    alias EventType = ::Etcd::Model::WatchEvent::Type
+
     alias Event = NamedTuple(
       key: String,
       value: String?,
-      type: Etcd::Model::WatchEvent::Type,
+      type: EventType,
       namespace: String,
       service: String?,
     )

@@ -2,7 +2,7 @@ require "./helper"
 
 module HoundDog
   describe Service do
-    etcd_host = ENV["eTCD_HOST"]? || "127.0.0.1"
+    etcd_host = ENV["ETCD_HOST"]? || "127.0.0.1"
     etcd_port = (ENV["ETCD_PORT"]? || 2379).to_i
     etcd_ttl = (ENV["ETCD_TTL"]? || 1).to_i64
     client = Etcd.client(etcd_host, etcd_port)
@@ -14,10 +14,10 @@ module HoundDog
     it "discovers available services" do
       lease = client.lease.grant etcd_ttl
 
-      key0, value0 = "service/api/foo", "foo:42"
-      key1, value1 = "service/api/bar", "bar:42"
-      key2, value2 = "service/engine/foo", "foot:42"
-      key3, value3 = "service/engine/bar", "bath:42"
+      key0, value0 = "service/api/foo", "http://foo:42"
+      key1, value1 = "service/api/bar", "http://bar:42"
+      key2, value2 = "service/engine/foo", "http://foot:42"
+      key3, value3 = "service/engine/bar", "http://bath:42"
 
       client.kv.put(key0, value0, lease: lease[:id])
       client.kv.put(key1, value1, lease: lease[:id])
@@ -30,17 +30,17 @@ module HoundDog
     it "lists services beneath given namespace" do
       lease = client.lease.grant etcd_ttl
 
-      key0, value0 = "service/api/foo", "foot:42"
-      key1, value1 = "service/api/bar", "bath:42"
-      key2, value2 = "service/engine/foo", "foo:42"
+      key0, value0 = "service/api/foot", "http://foot:42"
+      key1, value1 = "service/api/bath", "http://bath:42"
+      key2, value2 = "service/engine/foo", "http://foo:42"
 
       client.kv.put(key0, value0, lease: lease[:id])
       client.kv.put(key1, value1, lease: lease[:id])
       client.kv.put(key2, value2, lease: lease[:id])
 
       expected = [
-        {ip: "bath", port: 42},
-        {ip: "foot", port: 42},
+        {name: "bath", uri: URI.parse("http://bath:42")},
+        {name: "foot", uri: URI.parse("http://foot:42")},
       ]
 
       Service.nodes("api").should eq expected
@@ -49,16 +49,16 @@ module HoundDog
     describe "#register" do
       it "registers a service" do
         service = "carrots"
-        ip = "127.0.0.1"
-        port : Int32 = 4242
+        name = "test"
+        uri = URI.parse("http://127.0.0.1:4242")
         ttl : Int64 = 1
 
         node = {
-          ip:   ip,
-          port: port,
+          name: name,
+          uri:  uri,
         }
 
-        registration = Service.new(service: service, node: node)
+        registration = Service.new(service: service, name: name, uri: uri)
 
         spawn(same_thread: true) { registration.register(ttl: ttl) }
 
@@ -80,23 +80,24 @@ module HoundDog
 
       it "monitors a service" do
         service = "potato"
-        ip0 = "127.0.0.1"
-        ip1 = "0.0.0.0"
-        port : Int32 = 4242
+        node0_name = "dub"
+        node0_uri = "http://127.0.0.1:4242"
+        node1_name = "tub"
+        node1_uri = "http://0.0.0.0:4242"
         ttl : Int64 = 1
 
         node0 = {
-          ip:   ip0,
-          port: port,
+          name: node0_name,
+          uri:  URI.parse(node0_uri),
         }
 
         node1 = {
-          ip:   ip1,
-          port: port,
+          name: node1_name,
+          uri:  URI.parse(node1_uri),
         }
 
-        subscription0 = Service.new(service: service, node: node0)
-        subscription1 = Service.new(service: service, node: node1)
+        subscription0 = Service.new(service: service, name: node0_name, uri: node0_uri)
+        subscription1 = Service.new(service: service, name: node1_name, uri: node1_uri)
 
         channel = Channel(Service::Event).new
 

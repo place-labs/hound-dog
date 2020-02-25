@@ -2,6 +2,8 @@ require "etcd"
 require "http"
 require "json"
 require "rendezvous-hash"
+require "uri"
+require "ulid"
 
 require "./service"
 require "./settings"
@@ -9,21 +11,26 @@ require "./settings"
 # Transparently manage service discovery through consistent hashing and ETCD
 module HoundDog
   class Discovery
-    getter service, ip, port, node, rendezvous
+    getter rendezvous : RendezvousHash
     private getter callback : Proc(Void)? = nil
     private getter service_events : Service
 
-    def initialize(
-      @service : String,
-      @ip : String = "127.0.0.1",
-      @port : Int32 = 8080
-    )
-      @node = {ip: ip, port: port}
+    # Service methods
+    delegate register, registered?, unmonitor, to: service_events
 
+    # Service getters
+    delegate lease_id, name, node, service, uri, to: service_events
+
+    def initialize(
+      service : String,
+      name : String = ULID.generate,
+      uri : URI | String = URI.new(ip: "127.0.0.1", port: 8080, scheme: "http")
+    )
       # Get service nodes
       @service_events = Service.new(
         service: service,
-        node: node,
+        name: name,
+        uri: uri,
       )
 
       # Initialiase the hash
@@ -34,17 +41,18 @@ module HoundDog
 
       # ASYNC! spawn service monitoring
       spawn(same_thread: true) { watchfeed.start }
+
       Fiber.yield
     end
 
     # Consistent hash lookup
     def find?(key : String) : Service::Node?
-      rendezvous.find?(key).try &->Service.node(String)
+      rendezvous.find?(key).try &->from_hash_value(String)
     end
 
     # Consistent hash lookup
     def find(key : String) : Service::Node
-      Service.node(rendezvous.find(key))
+      from_hash_value(rendezvous.find(key))
     end
 
     def [](key)
@@ -58,17 +66,14 @@ module HoundDog
     # Determine if key maps to current node
     #
     def own_node?(key : String) : Bool
-      service_value = rendezvous[key]?
-      !!(service_value && Service.node(service_value) == node)
+      find?(key) == node
     end
 
-    # Consistent hash nodes
+    # Nodes from the `rendezvous-hash`
     #
     def nodes : Array(Service::Node)
-      rendezvous.nodes.map &->Service.node(String)
+      rendezvous.nodes.map &->from_hash_value(String)
     end
-
-    delegate register, lease_id, registered?, unmonitor, to: service_events
 
     # Register service
     #
@@ -77,9 +82,11 @@ module HoundDog
       service_events.register
     end
 
+    # Unregister service
+    #
     def unregister
       service_events.unregister
-      rendezvous.remove?(Service.key_value(node))
+      rendezvous.remove?(to_hash_value(node))
 
       nil
     end
@@ -92,8 +99,23 @@ module HoundDog
       callback.try &.call
     end
 
+    # Nodes under the service namespace in `rendezvous-hash` value format
+    #
     private def etcd_nodes
-      Service.nodes(service).map { |n| Service.key_value(n) }
+      Service.nodes(service).map &->to_hash_value(Service::Node)
+    end
+
+    # Convert a `Service::Node` to a `rendezvous-hash` formatted value
+    #
+    private def to_hash_value(node : Service::Node)
+      "#{node[:name]}:#{node[:uri]}"
+    end
+
+    # Convert a `rendezvous-hash` formatted value to a `Service::Node`
+    #
+    private def from_hash_value(hash_node : String) : Service::Node
+      name, _, uri_string = hash_node.partition(":")
+      {name: name, uri: URI.parse(uri_string)}
     end
 
     def finalize
