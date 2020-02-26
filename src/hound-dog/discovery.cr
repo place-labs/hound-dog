@@ -47,12 +47,12 @@ module HoundDog
 
     # Consistent hash lookup
     def find?(key : String) : Service::Node?
-      rendezvous.find?(key).try &->from_hash_value(String)
+      rendezvous.find?(key).try &->Discovery.from_hash_value(String)
     end
 
     # Consistent hash lookup
     def find(key : String) : Service::Node
-      from_hash_value(rendezvous.find(key))
+      Discovery.from_hash_value(rendezvous.find(key))
     end
 
     def [](key)
@@ -72,7 +72,7 @@ module HoundDog
     # Nodes from the `rendezvous-hash`
     #
     def nodes : Array(Service::Node)
-      rendezvous.nodes.map &->from_hash_value(String)
+      rendezvous.nodes.map &->Discovery.from_hash_value(String)
     end
 
     # Register service
@@ -86,7 +86,7 @@ module HoundDog
     #
     def unregister
       service_events.unregister
-      rendezvous.remove?(to_hash_value(node))
+      rendezvous.remove?(Discovery.to_hash_value(node))
 
       nil
     end
@@ -102,18 +102,18 @@ module HoundDog
     # Nodes under the service namespace in `rendezvous-hash` value format
     #
     private def etcd_nodes
-      Service.nodes(service).map &->to_hash_value(Service::Node)
+      Service.nodes(service).map &->Discovery.to_hash_value(Service::Node)
     end
 
     # Convert a `Service::Node` to a `rendezvous-hash` formatted value
     #
-    private def to_hash_value(node : Service::Node)
+    def self.to_hash_value(node : Service::Node)
       "#{node[:name]}:#{node[:uri]}"
     end
 
     # Convert a `rendezvous-hash` formatted value to a `Service::Node`
     #
-    private def from_hash_value(hash_node : String) : Service::Node
+    def self.from_hash_value(hash_node : String) : Service::Node
       name, _, uri_string = hash_node.partition(":")
       {name: name, uri: URI.parse(uri_string)}
     end
