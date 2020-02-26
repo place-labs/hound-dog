@@ -24,7 +24,7 @@ module HoundDog
     def initialize(
       service : String,
       name : String = ULID.generate,
-      uri : URI | String = URI.new(ip: "127.0.0.1", port: 8080, scheme: "http")
+      uri : URI | String = URI.new(host: "127.0.0.1", port: 8080, scheme: "http")
     )
       # Get service nodes
       @service_events = Service.new(
