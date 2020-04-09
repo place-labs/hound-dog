@@ -38,6 +38,8 @@ module HoundDog
       !!(lease_id)
     end
 
+    getter registration_channel : Channel(Int64) = Channel(Int64).new
+
     getter name : String
     getter node : Node
     getter service : String
@@ -62,6 +64,7 @@ module HoundDog
     # - Spawns a fiber to maintain the lease
     def register(ttl : Int64 = HoundDog.settings.etcd_ttl)
       return if registered?
+      @registration_channel = Channel(Int64).new
 
       kv = etcd &.kv.range(node_key).kvs.try &.first?
 
@@ -76,6 +79,12 @@ module HoundDog
             end
 
       HoundDog.settings.logger.debug { "registered lease #{lease_id} for #{node_key}" }
+
+      begin
+        registration_channel.send(lease_id.as(Int64))
+      rescue Channel::ClosedError
+      end
+
       keep_alive(ttl)
     end
 
@@ -86,6 +95,7 @@ module HoundDog
       lease_deleted = etcd &.lease.revoke(id)
 
       raise "Failed to unregister #{@node} under #{@service}" unless lease_deleted
+      registration_channel.close unless registration_channel.closed?
       @lease_id = nil
     end
 

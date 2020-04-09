@@ -55,7 +55,9 @@ module HoundDog
       )
 
       spawn(same_thread: true) { discovery.register }
+
       sleep 0.2
+      discovery.registration_channel.receive.should_not be_nil
 
       discovery.own_node?("hello").should be_true
       discovery.unregister
@@ -75,6 +77,7 @@ module HoundDog
 
       spawn(same_thread: true) { discovery.register }
       sleep 0.2
+      discovery.registration_channel.receive.should_not be_nil
 
       # Ensure service registered
       discovery.nodes.should eq [discovery.node]
@@ -120,6 +123,7 @@ module HoundDog
 
       spawn(same_thread: true) { discovery.register }
       sleep 0.2
+      discovery.registration_channel.receive.should_not be_nil
 
       # Local nodes should match remote notes after initialisation
 
@@ -141,7 +145,8 @@ module HoundDog
       )
 
       spawn(same_thread: true) { discovery.register }
-      Fiber.yield
+      sleep 0.2
+      discovery.registration_channel.receive.should_not be_nil
 
       # Create a service
       lease = client.lease.grant etcd_ttl
@@ -174,6 +179,7 @@ module HoundDog
 
       spawn(same_thread: true) { discovery.register }
       sleep 0.2
+      discovery.registration_channel.receive.should_not be_nil
 
       etcd_nodes = Service.nodes(service).sort_by { |s| s[:name] }
       local_nodes = discovery.nodes.sort_by { |s| s[:name] }

@@ -63,8 +63,9 @@ module HoundDog
 
         spawn(same_thread: true) { registration.register(ttl: ttl) }
 
-        # Wait for registration
-        sleep 0.2
+        Fiber.yield
+
+        registration.registration_channel.receive.should_not be_nil
 
         # Check that service registered
         Service.nodes(service).should contain node
@@ -117,7 +118,9 @@ module HoundDog
           subscription1.register(ttl: ttl)
         end
 
-        sleep 0.2
+        Fiber.yield
+
+        subscription1.registration_channel.receive.should_not be_nil
 
         # Check callbacks are received
         channel.receive[:type].should eq Etcd::Model::WatchEvent::Type::PUT
