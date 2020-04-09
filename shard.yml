@@ -1,12 +1,11 @@
 name: hound-dog
 version: 2.1.1
-crystal: 0.33.0
 license: MIT
 
 dependencies:
   etcd:
     github: aca-labs/crystal-etcd
-    version: ~> 0.4
+    branch: master
 
   habitat:
     github: luckyframework/habitat
