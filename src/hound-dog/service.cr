@@ -64,7 +64,7 @@ module HoundDog
     # - Spawns a fiber to maintain the lease
     def register(ttl : Int64 = HoundDog.settings.etcd_ttl)
       return if registered?
-      @registration_channel = Channel(Int64).new
+      @registration_channel = Channel(Int64).new if registration_channel.closed?
 
       kv = etcd &.kv.range(node_key).kvs.try &.first?
 
