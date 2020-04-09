@@ -1,10 +1,11 @@
+require "uuid"
 require "./helper"
 
 module HoundDog
   describe Service do
     etcd_host = ENV["ETCD_HOST"]? || "127.0.0.1"
     etcd_port = (ENV["ETCD_PORT"]? || 2379).to_i
-    etcd_ttl = (ENV["ETCD_TTL"]? || 1).to_i64
+    etcd_ttl = (ENV["ETCD_TTL"]? || 30).to_i64
     client = Etcd.client(etcd_host, etcd_port)
 
     Spec.before_each do
@@ -49,7 +50,7 @@ module HoundDog
     describe "#register" do
       it "registers a service" do
         service = "carrots"
-        name = "test"
+        name = UUID.random.to_s
         uri = URI.parse("http://127.0.0.1:4242")
         ttl : Int64 = 1
 

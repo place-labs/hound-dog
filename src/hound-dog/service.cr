@@ -66,23 +66,17 @@ module HoundDog
       kv = etcd &.kv.range(node_key).kvs.try &.first?
 
       # Check for key-value existence
-      if kv && kv.key == node_key && kv.value == uri && kv.lease
-        @lease_id = kv.lease.as(Int64)
-        # Renew lease if key-value and lease present
-        return keep_alive(ttl)
-      end
+      ttl = if kv && kv.key == node_key && kv.value == uri && kv.lease
+              @lease_id = kv.lease.as(Int64)
 
-      # Secure and maintain lease from etcd
-      lease = etcd &.lease.grant(ttl)
+              # Renew lease if key-value and lease present
+              ttl
+            else
+              new_lease(ttl)
+            end
 
-      # Register service under namespace
-      key_set = !(etcd &.kv.put(node_key, uri, lease: lease[:id]).nil?)
-      raise "Failed to register #{@node} under #{@service}" unless key_set
-
-      @lease_id = lease[:id]
-
-      # Types don't normalise from above check, have to cast.
-      keep_alive(lease[:ttl])
+      HoundDog.settings.logger.debug { "registered lease #{lease_id} for #{node_key}" }
+      keep_alive(ttl)
     end
 
     # Unregister current service node
@@ -195,16 +189,44 @@ module HoundDog
     #
     protected def keep_alive(ttl : Int64)
       retry_interval = ttl // 2
-      Tasker.instance.in(retry_interval.seconds) do
-        if (id = lease_id)
-          begin
-            renewed_ttl = etcd &.lease.keep_alive(id)
-            spawn(same_thread: true) { self.keep_alive(renewed_ttl) }
-          rescue e
-            HoundDog.settings.logger.error("in keep_alive: error=#{e.inspect_with_backtrace}")
-          end
+      loop do
+        id = lease_id
+        if id.nil?
+          HoundDog.settings.logger.info { "in keep_alive: stopped keep_alive" }
+          break
         end
+
+        start = Time.monotonic
+        Tasker.instance.in(retry_interval.seconds) do
+          begin
+            elapsed = Time.monotonic - start
+            if elapsed > ttl.seconds
+              # Attempt to renew if lease has expired
+              HoundDog.settings.logger.warn { "in keep_alive: lost lease #{id} for #{node_key}" }
+              ttl = new_lease(ttl)
+            else
+              # Otherwise keep alive lease
+              renewed_ttl = etcd &.lease.keep_alive(id.as(Int64))
+              ttl = renewed_ttl unless renewed_ttl.nil? || lease_id.nil?
+            end
+          rescue e
+            HoundDog.settings.logger.error { "in keep_alive: #{e.inspect_with_backtrace}" }
+          end
+        end.get
       end
+    end
+
+    protected def new_lease(ttl)
+      # Secure and maintain lease from etcd
+      lease = etcd &.lease.grant(ttl)
+
+      # Register service under namespace
+      key_set = !(etcd &.kv.put(node_key, uri, lease: lease[:id]).nil?)
+      raise "Failed to register #{@node} under #{@service}" unless key_set
+
+      @lease_id = lease[:id]
+
+      lease[:ttl]
     end
   end
 end
