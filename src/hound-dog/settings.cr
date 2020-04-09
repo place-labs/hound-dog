@@ -1,10 +1,7 @@
 require "habitat"
-require "logger"
 
 module HoundDog
   Habitat.create do
-    setting logger : Logger = Logger.new(STDOUT)
-
     # Service Discovery Configuration
     ###########################################################################
     setting service_namespace : String = ENV["HD_SERVICE_NAMESPACE"]? || "service"

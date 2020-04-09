@@ -75,7 +75,7 @@ module HoundDog
               new_lease(ttl)
             end
 
-      HoundDog.settings.logger.debug { "registered lease #{lease_id} for #{node_key}" }
+      Log.debug { "registered lease #{lease_id} for #{node_key}" }
       keep_alive(ttl)
     end
 
@@ -192,7 +192,7 @@ module HoundDog
       loop do
         id = lease_id
         if id.nil?
-          HoundDog.settings.logger.info { "in keep_alive: stopped keep_alive" }
+          Log.info { "in keep_alive: stopped keep_alive" }
           break
         end
 
@@ -202,7 +202,7 @@ module HoundDog
             elapsed = Time.monotonic - start
             if elapsed > ttl.seconds
               # Attempt to renew if lease has expired
-              HoundDog.settings.logger.warn { "in keep_alive: lost lease #{id} for #{node_key}" }
+              Log.warn { "in keep_alive: lost lease #{id} for #{node_key}" }
               ttl = new_lease(ttl)
             else
               # Otherwise keep alive lease
@@ -210,7 +210,7 @@ module HoundDog
               ttl = renewed_ttl unless renewed_ttl.nil? || lease_id.nil?
             end
           rescue e
-            HoundDog.settings.logger.error { "in keep_alive: #{e.inspect_with_backtrace}" }
+            Log.error { "in keep_alive: #{e.inspect_with_backtrace}" }
           end
         end.get
       end
