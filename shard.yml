@@ -1,10 +1,10 @@
 name: hound-dog
-version: 2.2.0
+version: 2.2.1
 license: MIT
 
 dependencies:
   etcd:
-    github: aca-labs/crystal-etcd
+    github: place-labs/crystal-etcd
     version: ~> 1.0
 
   habitat:
@@ -20,7 +20,7 @@ dependencies:
     github: spider-gazelle/tokenizer
 
   ulid:
-    github: aca-labs/ulid
+    github: place-labs/ulid
 
 development_dependencies:
   ameba:
