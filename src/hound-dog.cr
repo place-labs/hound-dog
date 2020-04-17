@@ -1,5 +1,9 @@
+require "log"
+
 # Service discovery information
 module HoundDog
+  Log = ::Log.for(self)
+
   # Single connection
   def self.etcd_client
     Etcd.client(
