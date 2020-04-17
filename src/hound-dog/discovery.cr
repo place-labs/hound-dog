@@ -75,6 +75,16 @@ module HoundDog
       rendezvous.nodes.map &->Discovery.from_hash_value(String)
     end
 
+    # Construct a mapping of node names their URIs
+    def node_hash : Hash(String, URI)
+      rendezvous
+        .nodes
+        .map(&->Discovery.from_hash_value(String))
+        .each_with_object({} of String => URI) do |hash, node|
+          hash[node[:name]] = node[:uri]
+        end
+    end
+
     # Register service
     #
     def register(&callback : Proc(Void))
