@@ -80,7 +80,7 @@ module HoundDog
       rendezvous
         .nodes
         .map(&->Discovery.from_hash_value(String))
-        .each_with_object({} of String => URI) do |hash, node|
+        .each_with_object({} of String => URI) do |node, hash|
           hash[node[:name]] = node[:uri]
         end
     end
