@@ -1,4 +1,4 @@
-require "log"
+require "log_helper"
 
 # Service discovery information
 module HoundDog
