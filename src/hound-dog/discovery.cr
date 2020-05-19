@@ -24,7 +24,8 @@ module HoundDog
     def initialize(
       service : String,
       name : String = ULID.generate,
-      uri : URI | String = URI.new(host: "127.0.0.1", port: 8080, scheme: "http")
+      uri : URI | String = URI.new(host: "127.0.0.1", port: 8080, scheme: "http"),
+      watchfeed : Bool = true
     )
       # Get service nodes
       @service_events = Service.new(
@@ -36,13 +37,15 @@ module HoundDog
       # Initialiase the hash
       @rendezvous = RendezvousHash.new(nodes: etcd_nodes)
 
-      # Prepare watchfeed
-      watchfeed = service_events.monitor(&->handle_service_message(Service::Event))
+      if watchfeed
+        # Prepare watchfeed
+        watchfeed = service_events.monitor(&->handle_service_message(Service::Event))
 
-      # ASYNC! spawn service monitoring
-      spawn(same_thread: true) { watchfeed.start }
+        # ASYNC! spawn service monitoring
+        spawn(same_thread: true) { watchfeed.start }
 
-      Fiber.yield
+        Fiber.yield
+      end
     end
 
     # Consistent hash lookup
