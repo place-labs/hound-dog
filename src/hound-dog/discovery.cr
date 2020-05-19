@@ -39,10 +39,10 @@ module HoundDog
 
       if watchfeed
         # Prepare watchfeed
-        watchfeed = service_events.monitor(&->handle_service_message(Service::Event))
+        feed = service_events.monitor(&->handle_service_message(Service::Event))
 
         # ASYNC! spawn service monitoring
-        spawn(same_thread: true) { watchfeed.start }
+        spawn(same_thread: true) { feed.start }
 
         Fiber.yield
       end
