@@ -1,6 +1,6 @@
 # hound-dog
 
-[![Build Status](https://travis-ci.org/aca-labs/hound-dog.svg?branch=master)](https://travis-ci.org/aca-labs/hound-dog)
+[![Build Status](https://travis-ci.org/place-labs/hound-dog.svg?branch=master)](https://travis-ci.org/place-labs/hound-dog)
 
 Library for self-registration and service discovery that utilises Etcd for distributed key-value storage.
 Wraps service data in etcd within a [rendezvous hash](https://github.com/caspiano/rendezvous-hash)
@@ -51,7 +51,7 @@ Developed against `ETCD_API=3` and etcd-server `v3.3.13`, using etcd's JSON-gRPC
 
 ## Contributing
 
-1. [Fork it](https://github.com/aca-labs/hound-dog/fork)
+1. [Fork it](https://github.com/place-labs/hound-dog/fork)
 2. Create your feature branch (`git checkout -b my-new-feature`)
 3. Commit your changes (`git commit -am 'Add some feature'`)
 4. Push to the branch (`git push origin my-new-feature`)

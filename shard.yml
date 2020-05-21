@@ -1,5 +1,5 @@
 name: hound-dog
-version: 2.3.2
+version: 2.4.0
 license: MIT
 
 dependencies:
@@ -30,4 +30,4 @@ development_dependencies:
     github: crystal-ameba/ameba
 
 authors:
-  - Caspian Baska <caspianbaska@gmail.com>
+  - Caspian Baska <caspian@place.technology>
