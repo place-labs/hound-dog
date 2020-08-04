@@ -1,4 +1,5 @@
 require "etcd"
+require "log"
 require "mutex"
 require "tasker"
 
@@ -10,6 +11,8 @@ require "./settings"
 # - Querying nodes under a namespace.
 module HoundDog
   class Service
+    Log = ::Log.for(self)
+
     # Namespace under which all services are registered in etcd
     @@namespace : String = HoundDog.settings.service_namespace
 
@@ -68,9 +71,13 @@ module HoundDog
 
       kv = etcd &.kv.range(node_key).kvs.try &.first?
 
+      Log.debug { "existing value for #{node_key}: #{kv.value}" } unless kv.nil?
+
       # Check for key-value existence
-      ttl = if kv && kv.key == node_key && kv.value == uri && kv.lease
+      ttl = if kv && kv.key == node_key && kv.value == uri.to_s && kv.lease
               @lease_id = kv.lease.as(Int64)
+
+              Log.debug { "reusing existing lease from previous registration: #{@lease_id}" }
 
               # Renew lease if key-value and lease present
               ttl
@@ -229,6 +236,8 @@ module HoundDog
     protected def new_lease(ttl)
       # Secure and maintain lease from etcd
       lease = etcd &.lease.grant(ttl)
+
+      Log.debug { "lease for #{node_key}: #{lease[:id]} with ttl of #{lease[:ttl]}" }
 
       # Register service under namespace
       key_set = !(etcd &.kv.put(node_key, uri, lease: lease[:id]).nil?)

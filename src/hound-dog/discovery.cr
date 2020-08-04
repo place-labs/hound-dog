@@ -1,9 +1,10 @@
 require "etcd"
 require "http"
 require "json"
+require "log"
 require "rendezvous-hash"
-require "uri"
 require "ulid"
+require "uri"
 
 require "./service"
 require "./settings"
@@ -11,6 +12,8 @@ require "./settings"
 # Transparently manage service discovery through consistent hashing and ETCD
 module HoundDog
   class Discovery
+    Log = ::Log.for(self)
+
     getter rendezvous : RendezvousHash
     private getter callback : Proc(Void)? = nil
     private getter service_events : Service
