@@ -24,18 +24,35 @@ module HoundDog
     # Service getters
     delegate lease_id, name, node, service, uri, to: service_events
 
+    enum Method
+      Dns
+      Etcd
+    end
+
+    getter method : Method
+
     def initialize(
       service : String,
       name : String = ULID.generate,
       uri : URI | String = URI.new(host: "127.0.0.1", port: 8080, scheme: "http"),
+      @method : Method = Method::Etcd,
       watchfeed : Bool = true
     )
       # Get service nodes
-      @service_events = Service.new(
-        service: service,
-        name: name,
-        uri: uri,
-      )
+      @service_events = case method
+                        in Method::Dns
+                          Service::Dns.new(
+                            service: service,
+                            name: name,
+                            uri: uri,
+                          )
+                        in Method::Etcd
+                          Service::Etcd.new(
+                            service: service,
+                            name: name,
+                            uri: uri,
+                          )
+                        end
 
       # Initialiase the hash
       @rendezvous = RendezvousHash.new(nodes: etcd_nodes)

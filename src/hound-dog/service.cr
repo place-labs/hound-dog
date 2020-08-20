@@ -2,6 +2,7 @@ require "etcd"
 require "log"
 require "mutex"
 require "tasker"
+require "socket"
 
 require "./settings"
 
@@ -10,29 +11,172 @@ require "./settings"
 # - Registering discovery information.
 # - Querying nodes under a namespace.
 module HoundDog
-  class Service
-    Log = ::Log.for(self)
-
-    # Namespace under which all services are registered in etcd
-    @@namespace : String = HoundDog.settings.service_namespace
-
+  abstract class Service
     # Node metadata
     alias Node = NamedTuple(
       name: String,
       uri: URI,
     )
 
-    private getter etcd_client_lock : Mutex = Mutex.new
-    @etcd : Etcd::Client?
+    getter name : String
+    getter node : Node
+    getter service : String
+    getter uri : URI
+
+    # abstract def register(ttl : Int64)
+    # abstract def unregister
+
+    abstract def monitor(&callback : Event ->)
+    abstract def unmonitor
+
+    def initialize(
+      @service : String,
+      @name : String,
+      uri : URI | String
+    )
+      @uri = uri.is_a?(String) ? URI.parse(uri) : uri
+      @node = {name: @name, uri: @uri}
+    end
+
+    # Watching
+    ########################################################################
+
+    # PUT/DELETE
+    alias EventType = ::Etcd::Model::WatchEvent::Type
+
+    alias Event = NamedTuple(
+      key: String,
+      value: String?,
+      type: EventType,
+      namespace: String,
+      service: String?,
+    )
+
+    # Utils
+
+    # Construct a node
+    #
+    def self.node(key : String, value : String) : Node
+      {
+        name: self.name_from_key(key),
+        uri:  URI.parse(value),
+      }
+    end
+
+    # Extract node name from key
+    #
+    def self.name_from_key(key : String)
+      key.split('/').last
+    end
+  end
+
+  class Service::Dns < Service
+    Log = ::Log.for(self)
+
+    class Watcher
+      @cron_job : Tasker::CRON(Nil)?
+
+      private getter address
+      private getter cron_tab
+      private getter block
+
+      getter addresses = [] of String
+
+      def initialize(@address : String, @cron_tab : String = "* * * * *", &@block : Event ->)
+      end
+
+
+      def get_addresses
+        Socket::Addrinfo.tcp(ser, "3000").map do |addr_info|
+          addr_info.ip_address.address
+        end
+      end
+
+      def self.diff(old : Array(String), new : Array(String)) : NamedTuple(event: EventType, address: String)
+        # Calculate di
+
+      end
+
+      end
+
+      def start
+        cron = @cron_job
+        cron.cancel unless cron.nil?
+
+        @cron_job = Tasker.cron(cron_tab) do
+         # Check for changes/ if there are yield, don't sleep
+         # otherwise sleep
+         # check for changes
+        end
+      {
+        key:       key,
+        value:     event.kv.value,
+        type:      event.type,
+        namespace: tokens[0],
+        service:   tokens[1]?,
+      }
+      end
+
+      def stop
+      end
+
+      private def synchronise
+        # Check the DNS list
+        # Diff with the local list of addresses
+
+        # Create an array of events
+
+        # yield all new address, as creates
+        # yield all missing addresses, as deletes
+      end
+    end
+
+    @watchfeed : Watcher?
+
+
+    def monitor
+      Watcher.new(service)
+    end
+
+
+    def self.watch(service, &block : Event ->)
+      Watcher.new(service) do |e|
+        block.call(e)
+      end
+
+
+      end
+      HoundDog.etcd_client.watch.watch_prefix(prefix) do |events|
+        events.each { |event| block.call self.parse_event(event) }
+      end
+    end
+
+    def self.nodes(service : String) : Array(Nodes)
+      Socket::Addrinfo.tcp(ser, "3000").map do |addr_info|
+        address = addr_info.ip_address.address
+        self.node(address, "http://#{address}:#{port}")
+      end
+    end
+  end
+
+  class Service::Etcd < Service
+    Log = ::Log.for(self)
+
+    # Namespace under which all services are registered in etcd
+    @@namespace : String = HoundDog.settings.service_namespace
+
+    private getter etcd_client_lock : Mutex = Mutex.new 
+
+    @etcd : ::Etcd::Client?
 
     def etcd
       etcd_client_lock.synchronize do
-        yield (@etcd ||= HoundDog.etcd_client).as(Etcd::Client)
+        yield (@etcd ||= HoundDog.etcd_client).as(::Etcd::Client)
       end
     end
 
     # Wrapper for Etcd event subscription
-    @watchfeed : Etcd::Watch::Watcher?
+    @watchfeed : ::Etcd::Watch::Watcher?
 
     # Lease id for service registration in Etcd
     getter lease_id : Int64? = nil
@@ -42,12 +186,6 @@ module HoundDog
     end
 
     getter registration_channel : Channel(Int64) = Channel(Int64).new
-
-    getter name : String
-    getter node : Node
-    getter service : String
-    getter uri : URI
-
     private getter node_key : String
 
     def initialize(
@@ -55,9 +193,8 @@ module HoundDog
       @name : String,
       uri : URI | String
     )
-      @uri = uri.is_a?(String) ? URI.parse(uri) : uri
-      @node = {name: @name, uri: @uri}
       @node_key = "#{@@namespace}/#{@service}/#{@name}"
+      super(@service, @name, uri)
     end
 
     # Registers a node under a service namespace, passing events under namespace to the callback
@@ -111,9 +248,9 @@ module HoundDog
 
     # List nodes under a service namespace
     #
-    def self.nodes(service) : Array(Node)
+    def self.nodes(service : String) : Array(Node)
       namespace = "#{@@namespace}/#{service}/"
-      range = HoundDog.etcd_client.kv.range_prefix(namespace).kvs || [] of Etcd::Model::Kv
+      range = HoundDog.etcd_client.kv.range_prefix(namespace).kvs || [] of ::Etcd::Model::Kv
       range.compact_map do |n|
         # Parse an Etcd KV into a Node
         n.value.try { |v| self.node(key: n.key, value: v) }
@@ -123,7 +260,7 @@ module HoundDog
     # List available services
     #
     def self.services
-      kvs = HoundDog.etcd_client.kv.range_prefix(@@namespace).kvs || [] of Etcd::Model::Kv
+      kvs = HoundDog.etcd_client.kv.range_prefix(@@namespace).kvs || [] of ::Etcd::Model::Kv
       kvs.compact_map { |r| r.key.as(String).split('/')[1]? }.uniq
     end
 
@@ -140,7 +277,7 @@ module HoundDog
     #
     def monitor(&callback : Event ->)
       unmonitor if @watchfeed
-      @watchfeed = Service.watch(@service, &callback)
+      @watchfeed = Etcd.watch(@service, &callback)
     end
 
     # Stop monitoring the service namespace
@@ -150,37 +287,6 @@ module HoundDog
       @watchfeed = nil
     end
 
-    # Utils
-    ###########################################################################
-
-    # Construct a node
-    #
-    def self.node(key : String, value : String) : Node
-      {
-        name: self.name_from_key(key),
-        uri:  URI.parse(value),
-      }
-    end
-
-    # Extract node name from key
-    #
-    def self.name_from_key(key : String)
-      key.split('/').last
-    end
-
-    # Watching
-    ########################################################################
-
-    alias EventType = ::Etcd::Model::WatchEvent::Type
-
-    alias Event = NamedTuple(
-      key: String,
-      value: String?,
-      type: EventType,
-      namespace: String,
-      service: String?,
-    )
-
     # Asynchronous interface
     def self.watch(service, &block : Event ->)
       prefix = "#{@@namespace}/#{service}"
@@ -189,7 +295,7 @@ module HoundDog
       end
     end
 
-    def self.parse_event(event : Etcd::Model::WatchEvent) : Event
+    def self.parse_event(event : ::Etcd::Model::WatchEvent) : Event
       key = event.kv.key
       tokens = key.split('/')
 

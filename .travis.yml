@@ -12,11 +12,14 @@ before_install:
 
 install:
   - shards install
+  # Add some dummy DNS records
+  - cat spec/mock_hosts.txt >> /etc/hosts
 
 before_script:
   - sleep 5
 
 script:
-  - crystal spec
+  - crystal spec --tag 'dns'
+  - crystal spec --tag 'etcd'
   - crystal tool format --check
   - bin/ameba
