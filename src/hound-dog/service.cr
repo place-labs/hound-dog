@@ -22,15 +22,6 @@ module HoundDog
       uri: URI,
     )
 
-    private getter etcd_client_lock : Mutex = Mutex.new
-    @etcd : Etcd::Client?
-
-    def etcd
-      etcd_client_lock.synchronize do
-        yield (@etcd ||= HoundDog.etcd_client).as(Etcd::Client)
-      end
-    end
-
     # Wrapper for Etcd event subscription
     @watchfeed : Etcd::Watch::Watcher?
 
@@ -69,7 +60,7 @@ module HoundDog
       return if registered?
       @registration_channel = Channel(Int64).new if registration_channel.closed?
 
-      kv = etcd &.kv.range(node_key).kvs.try &.first?
+      kv = HoundDog.etcd_client.kv.range(node_key).kvs.try &.first?
 
       Log.debug { "existing value for #{node_key}: #{kv.value}" } unless kv.nil?
 
@@ -99,7 +90,7 @@ module HoundDog
     #
     def unregister
       return unless (id = lease_id)
-      lease_deleted = etcd &.lease.revoke(id)
+      lease_deleted = HoundDog.etcd_client.lease.revoke(id)
 
       raise "Failed to unregister #{@node} under #{@service}" unless lease_deleted
       registration_channel.close unless registration_channel.closed?
@@ -223,7 +214,7 @@ module HoundDog
               ttl = new_lease(ttl)
             else
               # Otherwise keep alive lease
-              renewed_ttl = etcd &.lease.keep_alive(id.as(Int64))
+              renewed_ttl = HoundDog.etcd_client.lease.keep_alive(id.as(Int64))
               ttl = renewed_ttl unless renewed_ttl.nil? || lease_id.nil?
             end
           rescue e
@@ -235,12 +226,12 @@ module HoundDog
 
     protected def new_lease(ttl)
       # Secure and maintain lease from etcd
-      lease = etcd &.lease.grant(ttl)
+      lease = HoundDog.etcd_client.lease.grant(ttl)
 
       Log.debug { "lease for #{node_key}: #{lease[:id]} with ttl of #{lease[:ttl]}" }
 
       # Register service under namespace
-      key_set = !(etcd &.kv.put(node_key, uri, lease: lease[:id]).nil?)
+      key_set = !(HoundDog.etcd_client.kv.put(node_key, uri, lease: lease[:id]).nil?)
       raise "Failed to register #{@node} under #{@service}" unless key_set
 
       @lease_id = lease[:id]
