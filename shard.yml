@@ -1,6 +1,6 @@
 name: hound-dog
-version: 2.5.1
-crystal: 0.35
+version: 2.5.2
+crystal: ~> 0.35
 license: MIT
 
 dependencies:
@@ -11,12 +11,15 @@ dependencies:
   habitat:
     github: luckyframework/habitat
 
-  rendezvous-hash:
-    github: caspiano/rendezvous-hash
-
   log_helper:
     github: spider-gazelle/log_helper
     version: ~> 1.0
+
+  rendezvous-hash:
+    github: caspiano/rendezvous-hash
+
+  retriable:
+    github: Sija/retriable.cr
 
   tasker:
     github: spider-gazelle/tasker
@@ -32,4 +35,4 @@ development_dependencies:
     github: crystal-ameba/ameba
 
 authors:
-  - Caspian Baska <caspian@place.technology>
+  - Caspian Baska <caspian@place.tech>
