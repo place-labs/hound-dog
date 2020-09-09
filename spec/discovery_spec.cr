@@ -57,7 +57,12 @@ module HoundDog
       spawn(same_thread: true) { discovery.register }
 
       sleep 0.2
+
       discovery.registration_channel.receive.should_not be_nil
+
+      unless discovery.own_node?("hello")
+        pp! discovery.nodes
+      end
 
       discovery.own_node?("hello").should be_true
       discovery.unregister
