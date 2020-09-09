@@ -7,7 +7,7 @@ module HoundDog
     namespace = HoundDog.settings.service_namespace
 
     Spec.before_each do
-      client.kv.delete_prefix namespace
+      Service.clear_namespace
     end
 
     it "accepts a callback" do
@@ -44,6 +44,8 @@ module HoundDog
     end
 
     it "#own_node?" do
+      Service.clear_namespace
+
       service = "api"
       node_name = "bub"
       node_uri = "http://127.0.0.1:4242"
