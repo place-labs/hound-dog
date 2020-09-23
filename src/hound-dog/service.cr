@@ -196,7 +196,7 @@ module HoundDog
     # Method to defer renewal of lease with a dynamic TTL
     #
     protected def keep_alive(ttl : Int64)
-      retry_interval = ttl // 2
+      retry_interval = ttl // 3
       loop do
         id = lease_id
         if id.nil?

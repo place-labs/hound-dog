@@ -1,5 +1,5 @@
 name: hound-dog
-version: 2.5.2
+version: 2.5.3
 crystal: ~> 0.35
 license: MIT
 
@@ -20,6 +20,7 @@ dependencies:
 
   retriable:
     github: Sija/retriable.cr
+    version: ~> 0.2
 
   tasker:
     github: spider-gazelle/tasker
