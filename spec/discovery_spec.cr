@@ -1,6 +1,16 @@
 require "./helper"
 
 module HoundDog
+  def self.put(client, namespace, service, name, value) : Service::Node
+    node = Service::Node.new(
+      name: name,
+      uri: URI.parse(value),
+    )
+    key = "#{namespace}/#{service}/#{name}"
+    client.kv.put(key, value)
+    node
+  end
+
   describe Discovery do
     etcd_ttl = (ENV["ETCD_TTL"]? || 1).to_i64
     client = HoundDog.etcd_client
@@ -13,34 +23,35 @@ module HoundDog
     it "accepts a callback" do
       service = "api"
 
+      change_chan = Channel(Array(Service::Node)).new
+      register_chan = Channel(Array(Service::Node)).new
+
       discovery = Discovery.new(
         service: service,
         name: "rare",
         uri: "ssh://meme@internet",
+        on_change: ->(changes : Array(Service::Node)) { change_chan.send changes }
       )
 
-      chan = Channel(Nil).new
+      Fiber.yield
+
+      node0 = put(client, namespace, service, "bub", "http://127.0.0.1:4242")
+
+      change_chan.receive.first.should eq node0
+
       spawn(same_thread: true) do
-        discovery.register do
-          chan.send nil
+        discovery.register do |changes|
+          register_chan.send changes
         end
       end
 
-      node0_name = "bub"
-      node0_uri = "http://127.0.0.1:4242"
+      node1 = put(client, namespace, service, "tub", "http://127.0.0.1:4242")
 
-      node0 = Service::Node.new(
-        name: node0_name,
-        uri: URI.parse(node0_uri),
-      )
+      change_chan.receive.should eq [node0, node1]
+      register_chan.receive.should eq [node0, node1]
 
-      key = "#{namespace}/#{service}/#{node0_name}"
-      value = node0_uri
-      client.kv.put(key, value)
-
-      chan.receive.should be_nil
       discovery.unregister
-      discovery.nodes.should eq [node0]
+      discovery.nodes.should eq [node0, node1]
     end
 
     it "#own_node?" do
