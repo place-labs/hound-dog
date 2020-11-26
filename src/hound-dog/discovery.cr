@@ -14,8 +14,13 @@ module HoundDog
   class Discovery
     Log = ::Log.for(self)
 
+    alias Callback = Array(Service::Node) ->
+
     getter rendezvous : RendezvousHash
-    private getter callback : Proc(Void)? = nil
+
+    private getter register_callback : Callback? = nil
+    private getter on_change : Callback?
+
     private getter service_events : Service
 
     # Service methods
@@ -28,7 +33,8 @@ module HoundDog
       service : String,
       name : String = ULID.generate,
       uri : URI | String = URI.new(host: "127.0.0.1", port: 8080, scheme: "http"),
-      watchfeed : Bool = true
+      watchfeed : Bool = true,
+      @on_change : Callback? = nil
     )
       # Get service nodes
       @service_events = Service.new(
@@ -93,8 +99,8 @@ module HoundDog
 
     # Register service
     #
-    def register(&callback : Proc(Void))
-      @callback = callback
+    def register(&register_callback : Array(Service::Node) ->)
+      @register_callback = register_callback
       service_events.register
     end
 
@@ -110,9 +116,12 @@ module HoundDog
     # Event handler
     #
     private def handle_service_message(event : Service::Event)
-      rendezvous.nodes = etcd_nodes
-      # Trigger change callback if present
-      callback.try &.call
+      nodes = Service.nodes(service)
+      rendezvous.nodes = nodes.map &->Discovery.to_hash_value(Service::Node)
+
+      # Trigger change callbacks if present
+      on_change.try &.call(nodes)
+      register_callback.try &.call(nodes)
     end
 
     # Nodes under the service namespace in `rendezvous-hash` value format
