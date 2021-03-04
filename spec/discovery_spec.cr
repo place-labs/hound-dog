@@ -131,7 +131,7 @@ module HoundDog
       lease = client.lease.grant etcd_ttl
 
       key = "#{namespace}/#{service}/#{node0_name}"
-      client.kv.put(key, node0_uri, lease: lease[:id])
+      client.kv.put(key, node0_uri, lease: lease.id)
 
       discovery = Discovery.new(
         service: service,
@@ -170,7 +170,7 @@ module HoundDog
       lease = client.lease.grant etcd_ttl
       key = "#{namespace}/#{service}/#{new_node_name}"
 
-      client.kv.put(key, new_node_uri, lease: lease[:id])
+      client.kv.put(key, new_node_uri, lease: lease.id)
 
       sleep 0.2
 
@@ -193,7 +193,7 @@ module HoundDog
       # Create a service
       lease = client.lease.grant etcd_ttl
       key = "#{namespace}/#{service}/#{discovery.name}"
-      client.kv.put(key, discovery.uri.to_s, lease: lease[:id])
+      client.kv.put(key, discovery.uri.to_s, lease: lease.id)
 
       spawn(same_thread: true) { discovery.register }
       sleep 0.2

@@ -228,15 +228,15 @@ module HoundDog
       # Secure and maintain lease from etcd
       lease = HoundDog.etcd_client.lease.grant(ttl)
 
-      Log.debug { "lease for #{node_key}: #{lease[:id]} with ttl of #{lease[:ttl]}" }
+      Log.debug { "lease for #{node_key}: #{lease.id} with ttl of #{lease.ttl}" }
 
       # Register service under namespace
-      key_set = !(HoundDog.etcd_client.kv.put(node_key, uri, lease: lease[:id]).nil?)
+      key_set = !(HoundDog.etcd_client.kv.put(node_key, uri, lease: lease.id).nil?)
       raise "Failed to register #{@node} under #{@service}" unless key_set
 
-      @lease_id = lease[:id]
+      @lease_id = lease.id
 
-      lease[:ttl]
+      lease.ttl
     end
   end
 end
