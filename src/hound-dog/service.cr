@@ -14,7 +14,7 @@ module HoundDog
     Log = ::Log.for(self)
 
     # Namespace under which all services are registered in etcd
-    @@namespace : String = HoundDog.settings.service_namespace
+    class_getter namespace : String = HoundDog.settings.service_namespace
 
     # Node metadata
     alias Node = NamedTuple(
@@ -23,7 +23,7 @@ module HoundDog
     )
 
     # Wrapper for Etcd event subscription
-    @watchfeed : Etcd::Watch::Watcher?
+    private property watchfeed : Etcd::Watch::Watcher?
 
     # Lease id for service registration in Etcd
     getter lease_id : Int64? = nil
@@ -47,8 +47,8 @@ module HoundDog
       uri : URI | String
     )
       @uri = uri.is_a?(String) ? URI.parse(uri) : uri
-      @node = {name: @name, uri: @uri}
-      @node_key = "#{@@namespace}/#{@service}/#{@name}"
+      @node = {name: name, uri: @uri}
+      @node_key = "#{self.class.namespace}/#{service}/#{name}"
     end
 
     # Registers a node under a service namespace, passing events under namespace to the callback
@@ -65,10 +65,10 @@ module HoundDog
       Log.debug { "existing value for #{node_key}: #{kv.value}" } unless kv.nil?
 
       # Check for key-value existence
-      ttl = if kv && kv.key == node_key && kv.value == uri.to_s && kv.lease
-              @lease_id = kv.lease.as(Int64)
+      ttl = if kv && kv.key == node_key && kv.value == uri.to_s && (existing_id = kv.lease)
+              @lease_id = existing_id
 
-              Log.debug { "reusing existing lease from previous registration: #{@lease_id}" }
+              Log.debug { "reusing existing lease from previous registration: #{lease_id}" }
 
               # Renew lease if key-value and lease present
               ttl
@@ -79,7 +79,7 @@ module HoundDog
       Log.debug { "registered lease #{lease_id} for #{node_key}" }
 
       begin
-        registration_channel.send(lease_id.as(Int64))
+        lease_id.try { |id| registration_channel.send(id) }
       rescue Channel::ClosedError
       end
 
@@ -92,7 +92,7 @@ module HoundDog
       return unless (id = lease_id)
       lease_deleted = HoundDog.etcd_client.lease.revoke(id)
 
-      raise "Failed to unregister #{@node} under #{@service}" unless lease_deleted
+      raise "Failed to unregister #{node} under #{service}" unless lease_deleted
       registration_channel.close unless registration_channel.closed?
       @lease_id = nil
     end
@@ -103,8 +103,8 @@ module HoundDog
     # List nodes under a service namespace
     #
     def self.nodes(service) : Array(Node)
-      namespace = "#{@@namespace}/#{service}/"
-      range = HoundDog.etcd_client.kv.range_prefix(namespace).kvs || [] of Etcd::Model::Kv
+      namespace_key = "#{namespace}/#{service}/"
+      range = HoundDog.etcd_client.kv.range_prefix(namespace_key).kvs || [] of Etcd::Model::Kv
       range.compact_map do |n|
         # Parse an Etcd KV into a Node
         n.value.try { |v| self.node(key: n.key, value: v) }
@@ -115,7 +115,7 @@ module HoundDog
     #
     def self.services
       kvs = HoundDog.etcd_client.kv.range_prefix(@@namespace).kvs || [] of Etcd::Model::Kv
-      kvs.compact_map { |r| r.key.as(String).split('/')[1]? }.uniq
+      kvs.compact_map(&.key.split('/')[1]?).uniq!
     end
 
     # Remove all keys beneath namespace
@@ -130,15 +130,15 @@ module HoundDog
     # Start monitoring the service namespace
     #
     def monitor(&callback : Event ->)
-      unmonitor if @watchfeed
-      @watchfeed = Service.watch(@service, &callback)
+      unmonitor unless watchfeed.nil?
+      self.watchfeed = Service.watch(@service, &callback)
     end
 
     # Stop monitoring the service namespace
     #
     def unmonitor
-      @watchfeed.try &.stop
-      @watchfeed = nil
+      self.watchfeed.try &.stop
+      self.watchfeed = nil
     end
 
     # Utils
@@ -228,15 +228,15 @@ module HoundDog
       # Secure and maintain lease from etcd
       lease = HoundDog.etcd_client.lease.grant(ttl)
 
-      Log.debug { "lease for #{node_key}: #{lease[:id]} with ttl of #{lease[:ttl]}" }
+      Log.debug { "lease for #{node_key}: #{lease.id} with ttl of #{lease.ttl}" }
 
       # Register service under namespace
-      key_set = !(HoundDog.etcd_client.kv.put(node_key, uri, lease: lease[:id]).nil?)
+      key_set = !(HoundDog.etcd_client.kv.put(node_key, uri, lease: lease.id).nil?)
       raise "Failed to register #{@node} under #{@service}" unless key_set
 
-      @lease_id = lease[:id]
+      @lease_id = lease.id
 
-      lease[:ttl]
+      lease.ttl
     end
   end
 end
