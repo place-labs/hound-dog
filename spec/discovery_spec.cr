@@ -131,7 +131,7 @@ module HoundDog
       lease = client.lease.grant etcd_ttl
 
       key = "#{namespace}/#{service}/#{node0_name}"
-      client.kv.put(key, node0_uri, lease: lease[:id])
+      client.kv.put(key, node0_uri, lease: lease.id)
 
       discovery = Discovery.new(
         service: service,
@@ -163,19 +163,19 @@ module HoundDog
       )
 
       spawn(same_thread: true) { discovery.register }
-      sleep 0.2
+      sleep 15.milliseconds
       discovery.registration_channel.receive.should_not be_nil
 
       # Create a service
       lease = client.lease.grant etcd_ttl
       key = "#{namespace}/#{service}/#{new_node_name}"
 
-      client.kv.put(key, new_node_uri, lease: lease[:id])
+      client.kv.put(key, new_node_uri, lease: lease.id)
 
-      sleep 0.2
+      sleep 15.milliseconds
 
-      etcd_nodes = Service.nodes(service).sort_by { |s| s[:name] }
-      local_nodes = discovery.nodes.sort_by { |s| s[:name] }
+      etcd_nodes = Service.nodes(service).sort_by &.[:name]
+      local_nodes = discovery.nodes.sort_by &.[:name]
 
       # Local nodes should match remote notes after initialisation
       etcd_nodes.should eq local_nodes
@@ -193,14 +193,14 @@ module HoundDog
       # Create a service
       lease = client.lease.grant etcd_ttl
       key = "#{namespace}/#{service}/#{discovery.name}"
-      client.kv.put(key, discovery.uri.to_s, lease: lease[:id])
+      client.kv.put(key, discovery.uri.to_s, lease: lease.id)
 
       spawn(same_thread: true) { discovery.register }
-      sleep 0.2
+      sleep 15.milliseconds
       discovery.registration_channel.receive.should_not be_nil
 
-      etcd_nodes = Service.nodes(service).sort_by { |s| s[:name] }
-      local_nodes = discovery.nodes.sort_by { |s| s[:name] }
+      etcd_nodes = Service.nodes(service).sort_by &.[:name]
+      local_nodes = discovery.nodes.sort_by &.[:name]
 
       # Local nodes should match remote notes after initialisation
       etcd_nodes.should eq local_nodes

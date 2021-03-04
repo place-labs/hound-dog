@@ -20,10 +20,10 @@ module HoundDog
       key2, value2 = "service/engine/foo", "http://foot:42"
       key3, value3 = "service/engine/bar", "http://bath:42"
 
-      client.kv.put(key0, value0, lease: lease[:id])
-      client.kv.put(key1, value1, lease: lease[:id])
-      client.kv.put(key2, value2, lease: lease[:id])
-      client.kv.put(key3, value3, lease: lease[:id])
+      client.kv.put(key0, value0, lease: lease.id)
+      client.kv.put(key1, value1, lease: lease.id)
+      client.kv.put(key2, value2, lease: lease.id)
+      client.kv.put(key3, value3, lease: lease.id)
 
       Service.services.sort.should eq ["api", "engine"]
     end
@@ -35,9 +35,9 @@ module HoundDog
       key1, value1 = "service/api/bath", "http://bath:42"
       key2, value2 = "service/engine/foo", "http://foo:42"
 
-      client.kv.put(key0, value0, lease: lease[:id])
-      client.kv.put(key1, value1, lease: lease[:id])
-      client.kv.put(key2, value2, lease: lease[:id])
+      client.kv.put(key0, value0, lease: lease.id)
+      client.kv.put(key1, value1, lease: lease.id)
+      client.kv.put(key2, value2, lease: lease.id)
 
       expected = [
         {name: "bath", uri: URI.parse("http://bath:42")},
