@@ -60,3 +60,4 @@ Developed against `ETCD_API=3` and etcd-server `v3.3.13`, using etcd's JSON-gRPC
 ## Contributors
 
 - [Caspian Baska](https://github.com/caspiano) - creator and maintainer
+- [Duke Nguyen](https://github.com/dukeraphaelng) - contributor
