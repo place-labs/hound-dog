@@ -24,7 +24,7 @@ module HoundDog
     private getter service_events : Service
 
     # Service methods
-    delegate registration_channel, register, registered?, unmonitor, to: service_events
+    delegate registration_channel, register, registered?, unmonitor, etcd, to: service_events
 
     # Service getters
     delegate lease_id, name, node, service, uri, to: service_events
