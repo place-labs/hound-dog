@@ -1,6 +1,6 @@
 name: hound-dog
-version: 2.6.1
-crystal: ~> 0.35
+version: 2.7.0
+crystal: ">= 0.35.0"
 license: MIT
 
 dependencies:

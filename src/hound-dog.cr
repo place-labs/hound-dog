@@ -11,6 +11,12 @@ module HoundDog
       port: HoundDog.settings.etcd_port,
     )
   end
+
+  # Yield etcd connection, closing after block returns
+  def self.etcd_client
+    client = etcd_client
+    yield client ensure client.close
+  end
 end
 
 require "./hound-dog/*"

@@ -1,6 +1,7 @@
 require "etcd"
 require "log"
 require "mutex"
+require "retriable"
 require "tasker"
 
 require "./settings"
@@ -39,6 +40,40 @@ module HoundDog
     getter service : String
     getter uri : URI
 
+    @etcd : Etcd::Client?
+    private getter client_lock : Mutex { Mutex.new }
+
+    def etcd(retry : Bool = true, & : Etcd::Client -> _)
+      client_lock.synchronize do
+        if retry
+          Retriable.retry(
+            base_interval: 50.milliseconds,
+            max_interval: 10.seconds,
+            randomise: 100.milliseconds
+          ) do
+            run_etcd do |client|
+              yield client
+            end
+          end
+        else
+          run_etcd do |client|
+            yield client
+          end
+        end
+      end
+    end
+
+    private def run_etcd
+      client = @etcd || HoundDog.etcd_client
+      begin
+        yield client
+      rescue exception
+        @etcd.try &.close
+        @etcd = nil
+        raise exception
+      end
+    end
+
     private getter node_key : String
 
     def initialize(
@@ -60,7 +95,7 @@ module HoundDog
       return if registered?
       @registration_channel = Channel(Int64).new if registration_channel.closed?
 
-      kv = HoundDog.etcd_client.kv.range(node_key).kvs.try &.first?
+      kv = etcd &.kv.range(node_key).kvs.try &.first?
 
       Log.debug { "existing value for #{node_key}: #{kv.value}" } unless kv.nil?
 
@@ -90,7 +125,7 @@ module HoundDog
     #
     def unregister
       return unless (id = lease_id)
-      lease_deleted = HoundDog.etcd_client.lease.revoke(id)
+      lease_deleted = etcd &.lease.revoke(id)
 
       raise "Failed to unregister #{node} under #{service}" unless lease_deleted
       registration_channel.close unless registration_channel.closed?
@@ -104,7 +139,7 @@ module HoundDog
     #
     def self.nodes(service) : Array(Node)
       namespace_key = "#{namespace}/#{service}/"
-      range = HoundDog.etcd_client.kv.range_prefix(namespace_key).kvs || [] of Etcd::Model::Kv
+      range = HoundDog.etcd_client(&.kv.range_prefix(namespace_key).kvs) || [] of Etcd::Model::Kv
       range.compact_map do |n|
         # Parse an Etcd KV into a Node
         n.value.try { |v| self.node(key: n.key, value: v) }
@@ -114,14 +149,14 @@ module HoundDog
     # List available services
     #
     def self.services
-      kvs = HoundDog.etcd_client.kv.range_prefix(@@namespace).kvs || [] of Etcd::Model::Kv
+      kvs = HoundDog.etcd_client(&.kv.range_prefix(@@namespace).kvs) || [] of Etcd::Model::Kv
       kvs.compact_map(&.key.split('/')[1]?).uniq!
     end
 
     # Remove all keys beneath namespace
     #
     def self.clear_namespace
-      HoundDog.etcd_client.kv.delete_prefix(@@namespace)
+      HoundDog.etcd_client &.kv.delete_prefix(@@namespace)
     end
 
     # Monitoring
@@ -172,7 +207,7 @@ module HoundDog
       service: String?,
     )
 
-    # Asynchronous interface
+    # Synchronous interface
     def self.watch(service, &block : Event ->)
       prefix = "#{@@namespace}/#{service}"
       HoundDog.etcd_client.watch.watch_prefix(prefix) do |events|
