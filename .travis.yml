@@ -1,22 +1,16 @@
 language: crystal
-
-env:
-  - TRAVIS_TEST=true
-
-services:
-  - docker
+services: docker
 
 before_install:
-  # Install ETCD
-  - docker run --net="host" -p "2379:2379" -p "2380:2380" -e ALLOW_NONE_AUTHENTICATION=yes -d bitnami/etcd:3.3.13
+  - docker run -p 2379:2379 -p 2380:2380 -e ALLOW_NONE_AUTHENTICATION=yes -d bitnami/etcd:3.4.15
 
 install:
-  - shards install
+  - shards install --ignore-crystal-version
 
 before_script:
   - sleep 5
 
 script:
-  - crystal spec
+  - crystal spec -v
   - crystal tool format --check
   - bin/ameba
