@@ -99,35 +99,35 @@ module HoundDog
 
     # Register service
     #
-    def register(&register_callback : Array(Service::Node) ->)
+    def register(&register_callback : Array(Service::Node) ->) : Nil
       @register_callback = register_callback
       service_events.register
     end
 
     # Unregister service
     #
-    def unregister
+    def unregister : Nil
+      @register_callback = nil
       service_events.unregister
       rendezvous.remove?(Discovery.to_hash_value(node))
-
-      nil
     end
 
     # Event handler
     #
-    private def handle_service_message(event : Service::Event)
-      nodes = Service.nodes(service)
+    private def handle_service_message(event : Service::Event) : Nil
+      Log.trace { "got #{event[:type]} #{event[:namespace]}/#{event[:service]}/#{event[:key]}:#{event[:value]}" }
+      nodes = service_events.nodes
+      Log.trace { "nodes after service event [#{nodes.join(", ") { |n| "Node<#{n[:name]}, #{n[:uri]}>" }}]" }
+      # Update rendezvous hash nodes
       rendezvous.nodes = nodes.map &->Discovery.to_hash_value(Service::Node)
-
       # Trigger change callbacks if present
-      on_change.try &.call(nodes)
-      register_callback.try &.call(nodes)
+      {on_change, register_callback}.each(&.try(&.call(nodes)))
     end
 
     # Nodes under the service namespace in `rendezvous-hash` value format
     #
     private def etcd_nodes
-      Service.nodes(service).map &->Discovery.to_hash_value(Service::Node)
+      service_events.nodes.map &->Discovery.to_hash_value(Service::Node)
     end
 
     # Convert a `Service::Node` to a `rendezvous-hash` formatted value

@@ -137,26 +137,48 @@ module HoundDog
 
     # List nodes under a service namespace
     #
-    def self.nodes(service) : Array(Node)
+    def self.nodes(service, client : Etcd::Client? = nil) : Array(Node)
       namespace_key = "#{namespace}/#{service}/"
-      range = HoundDog.etcd_client(&.kv.range_prefix(namespace_key).kvs) || [] of Etcd::Model::Kv
+      range = client ? client.kv.range_prefix(namespace_key).kvs : HoundDog.etcd_client &.kv.range_prefix(namespace_key).kvs
+
       range.compact_map do |n|
         # Parse an Etcd KV into a Node
         n.value.try { |v| self.node(key: n.key, value: v) }
       end
     end
 
+    # :ditto:
+    def nodes : Array(Node)
+      etcd do |client|
+        self.class.nodes(service, client)
+      end
+    end
+
     # List available services
     #
-    def self.services
-      kvs = HoundDog.etcd_client(&.kv.range_prefix(@@namespace).kvs) || [] of Etcd::Model::Kv
+    def self.services(client : Etcd::Client? = nil)
+      kvs = (etcd = client) ? etcd.kv.range_prefix(@@namespace).kvs : HoundDog.etcd_client &.kv.range_prefix(@@namespace).kvs
       kvs.compact_map(&.key.split('/')[1]?).uniq!
+    end
+
+    # :ditto:
+    def services
+      etcd do |client|
+        self.class.services(client)
+      end
     end
 
     # Remove all keys beneath namespace
     #
-    def self.clear_namespace
-      HoundDog.etcd_client &.kv.delete_prefix(@@namespace)
+    def self.clear_namespace(client : Etcd::Client? = nil)
+      (etcd = client) ? etcd.kv.delete_prefix(@@namespace) : HoundDog.etcd_client &.kv.delete_prefix(@@namespace)
+    end
+
+    # :ditto:
+    def clear_namespace
+      etcd do |client|
+        self.class.clear_namespace(client)
+      end
     end
 
     # Monitoring
@@ -210,8 +232,13 @@ module HoundDog
     # Synchronous interface
     def self.watch(service, &block : Event ->)
       prefix = "#{@@namespace}/#{service}"
-      HoundDog.etcd_client.watch.watch_prefix(prefix) do |events|
-        events.each { |event| block.call self.parse_event(event) }
+      client = HoundDog.etcd_client
+      begin
+        client.watch.watch_prefix(prefix) do |events|
+          events.each { |event| block.call self.parse_event(event) }
+        end
+      ensure
+        client.close
       end
     end
 
@@ -249,7 +276,7 @@ module HoundDog
               ttl = new_lease(ttl)
             else
               # Otherwise keep alive lease
-              renewed_ttl = HoundDog.etcd_client.lease.keep_alive(id.as(Int64))
+              renewed_ttl = etcd &.lease.keep_alive(id.as(Int64))
               ttl = renewed_ttl unless renewed_ttl.nil? || lease_id.nil?
             end
           rescue e
@@ -261,13 +288,14 @@ module HoundDog
 
     protected def new_lease(ttl)
       # Secure and maintain lease from etcd
-      lease = HoundDog.etcd_client.lease.grant(ttl)
+      lease = etcd &.lease.grant(ttl)
 
       Log.debug { "lease for #{node_key}: #{lease.id} with ttl of #{lease.ttl}" }
 
       # Register service under namespace
-      key_set = !(HoundDog.etcd_client.kv.put(node_key, uri, lease: lease.id).nil?)
-      raise "Failed to register #{@node} under #{@service}" unless key_set
+      if etcd(&.kv.put(node_key, uri, lease: lease.id)).nil?
+        raise "failed to register #{@node} under #{@service}"
+      end
 
       @lease_id = lease.id
 

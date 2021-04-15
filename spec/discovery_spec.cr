@@ -37,6 +37,8 @@ module HoundDog
 
       node0 = put(client, namespace, service, "bub", "http://127.0.0.1:4242")
 
+      Fiber.yield
+
       change_chan.receive.first.should eq node0
 
       spawn(same_thread: true) do
@@ -45,13 +47,21 @@ module HoundDog
         end
       end
 
-      node1 = put(client, namespace, service, "tub", "http://127.0.0.1:4242")
+      Fiber.yield
+
+      node1 = discovery.node
 
       change_chan.receive.should eq [node0, node1]
       register_chan.receive.should eq [node0, node1]
 
+      node2 = put(client, namespace, service, "tub", "http://127.0.0.1:4242")
+
+      change_chan.receive.should eq [node0, node1, node2]
+      register_chan.receive.should eq [node0, node1, node2]
+
       discovery.unregister
-      discovery.nodes.should eq [node0, node1]
+      discovery.nodes.should eq [node0, node2]
+      change_chan.receive.should eq [node0, node2]
     end
 
     it "#own_node?" do
