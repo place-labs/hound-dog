@@ -7,5 +7,5 @@ require "../src/hound-dog"
 require "../src/hound-dog/*"
 
 Spec.before_suite do
-  ::Log.setup "*", :debug
+  ::Log.setup "*", :trace
 end
