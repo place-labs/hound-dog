@@ -274,7 +274,7 @@ module HoundDog
           if elapsed > ttl.seconds
             # Attempt to renew if lease has expired
             Log.warn { "keep_alive: lost lease #{id} for #{node_key}" }
-            ttl = new_lease(ttl)
+            new_lease(ttl)
           else
             # Otherwise keep alive lease
             renewed_ttl = etcd &.lease.keep_alive(id)
