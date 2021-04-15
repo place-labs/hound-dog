@@ -43,13 +43,15 @@ module HoundDog
     @etcd : Etcd::Client?
     private getter client_lock : Mutex { Mutex.new }
 
-    def etcd(retry : Bool = true, & : Etcd::Client -> _)
+    def etcd(retry : Bool = true, max_elapsed_time : Time::Span = 30.seconds, & : Etcd::Client -> _)
       client_lock.synchronize do
         if retry
           Retriable.retry(
-            base_interval: 50.milliseconds,
-            max_interval: 10.seconds,
-            randomise: 100.milliseconds
+            base_interval: 1.milliseconds,
+            randomise: 10.milliseconds,
+            max_interval: 1.seconds,
+            max_elapsed_time: max_elapsed_time,
+            on_retry: ->(e : Exception, _a : Int32, _e : Time::Span, _n : Time::Span) { Log.warn(exception: e) { "when calling etcd" } }
           ) do
             run_etcd do |client|
               yield client
