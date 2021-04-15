@@ -269,39 +269,60 @@ module HoundDog
         end
 
         start = Time.monotonic
-        Tasker.instance.in(retry_interval.seconds) do
-          begin
-            elapsed = Time.monotonic - start
-            if elapsed > ttl.seconds
-              # Attempt to renew if lease has expired
-              Log.warn { "in keep_alive: lost lease #{id} for #{node_key}" }
-              ttl = new_lease(ttl)
+        new_ttl = Tasker.instance.in(retry_interval.seconds) do
+          elapsed = Time.monotonic - start
+          if elapsed > ttl.seconds
+            # Attempt to renew if lease has expired
+            Log.warn { "keep_alive: lost lease #{id} for #{node_key}" }
+            ttl = new_lease(ttl)
+          else
+            # Otherwise keep alive lease
+            renewed_ttl = etcd &.lease.keep_alive(id)
+            if renewed_ttl.nil? && !lease_id.nil?
+              Log.warn { "keep_alive: lost lease #{id} for #{node_key}" }
+              new_lease(ttl)
             else
-              # Otherwise keep alive lease
-              renewed_ttl = etcd &.lease.keep_alive(id.as(Int64))
-              ttl = renewed_ttl unless renewed_ttl.nil? || lease_id.nil?
+              renewed_ttl
             end
-          rescue e
-            Log.error { "in keep_alive: #{e.inspect_with_backtrace}" }
           end
         end.get
+        ttl = new_ttl unless new_ttl.nil?
+        retry_interval = ttl // 3
       end
     end
 
-    protected def new_lease(ttl)
-      # Secure and maintain lease from etcd
-      lease = etcd &.lease.grant(ttl)
+    private getter lease_lock = Mutex.new
 
-      Log.debug { "lease for #{node_key}: #{lease.id} with ttl of #{lease.ttl}" }
+    protected def new_lease(ttl : Int64 = HoundDog.settings.etcd_ttl)
+      lease_lock.synchronize do
+        # Revoke existing lease
+        if id = lease_id
+          begin
+            etcd &.lease.revoke(id)
+          rescue e
+            Log.warn(exception: e) { "failed to revoke lease when requesting a new one" }
+          end
+        end
 
-      # Register service under namespace
-      if etcd(&.kv.put(node_key, uri, lease: lease.id)).nil?
-        raise "failed to register #{@node} under #{@service}"
+        # Secure and maintain lease from etcd
+        lease = etcd &.lease.grant(ttl)
+        Log.debug { "granted lease for #{node_key}: #{lease.id} with ttl of #{lease.ttl}" }
+        Retriable.retry(
+          base_interval: 1.milliseconds,
+          randomise: 10.milliseconds,
+          max_interval: 1.seconds,
+          max_elapsed_time: ttl.seconds,
+        ) do
+          # Register service under namespace
+          if etcd(&.kv.put(node_key, uri, lease: lease.id)).nil?
+            raise "failed to register #{@node} under #{@service}"
+          end
+        end
+
+        @lease_id = lease.id
+
+        lease.ttl
       end
-
-      @lease_id = lease.id
-
-      lease.ttl
     end
   end
 end
