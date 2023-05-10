@@ -1,5 +1,5 @@
 name: hound-dog
-version: 2.9.0
+version: 2.9.1
 crystal: ">= 0.35.1"
 license: MIT
 authors:

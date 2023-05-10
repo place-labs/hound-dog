@@ -262,32 +262,36 @@ module HoundDog
     protected def keep_alive(ttl : Int64)
       retry_interval = ttl // 3
       loop do
-        id = lease_id
-        if id.nil?
-          Log.info { "in keep_alive: stopped keep_alive" }
-          break
-        end
+        begin
+          id = lease_id
+          if id.nil?
+            Log.info { "in keep_alive: stopped keep_alive" }
+            break
+          end
 
-        start = Time.monotonic
-        new_ttl = Tasker.instance.in(retry_interval.seconds) do
-          elapsed = Time.monotonic - start
-          if elapsed > ttl.seconds
-            # Attempt to renew if lease has expired
-            Log.warn { "keep_alive: lost lease #{id} for #{node_key}" }
-            new_lease(ttl)
-          else
-            # Otherwise keep alive lease
-            renewed_ttl = etcd &.lease.keep_alive(id)
-            if renewed_ttl.nil? && !lease_id.nil?
+          start = Time.monotonic
+          new_ttl = Tasker.instance.in(retry_interval.seconds) do
+            elapsed = Time.monotonic - start
+            if elapsed > ttl.seconds
+              # Attempt to renew if lease has expired
               Log.warn { "keep_alive: lost lease #{id} for #{node_key}" }
               new_lease(ttl)
             else
-              renewed_ttl
+              # Otherwise keep alive lease
+              renewed_ttl = etcd &.lease.keep_alive(id)
+              if renewed_ttl.nil? && !lease_id.nil?
+                Log.warn { "keep_alive: lost lease #{id} for #{node_key}" }
+                new_lease(ttl)
+              else
+                renewed_ttl
+              end
             end
-          end
-        end.get
-        ttl = new_ttl unless new_ttl.nil?
-        retry_interval = ttl // 3
+          end.get
+          ttl = new_ttl unless new_ttl.nil?
+          retry_interval = ttl // 3
+        rescue error
+          Log.error(exception: error) { "keep_alive: unexpected error maintaining lease" }
+        end
       end
     end
 
